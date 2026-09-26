@@ -1,6 +1,9 @@
 # Node modules folder
 node_modules/
 
+# Build output
+dist/
+
 # Environment variables file
 .env
 
