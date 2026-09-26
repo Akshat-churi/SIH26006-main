@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { toast } from "sonner";
+import api from "./api";
 
 const FlowContext = createContext(null);
 
@@ -416,16 +417,100 @@ export function FlowProvider({ children }) {
     });
   };
 
-  // Clear transient dashboard requirement on beforeunload so reload returns to clean map
+  // Multi-modal Supply Chain Relay State (Vessel Port Arrival ➔ Gate QR Scan ➔ Truck Delivery)
+  const [vesselArrivedAtPort, setVesselArrivedAtPort] = useState(false);
+  const [waitingForTruckGateScan, setWaitingForTruckGateScan] = useState(false);
+  const [gateCleared, setGateCleared] = useState(false);
+
+  // Scan QR gate pass action: sets gateCleared to true, notifies server, raises boom barrier
+  const scanGatePass = async (plate = "OD-05-AX-4821", gatePassId = "GP-TATA-8801") => {
+    setGateCleared(true);
+    setWaitingForTruckGateScan(false);
+    toast.success(`✅ QR Gate Pass Verified: ${plate}! Boom barrier raised. Cargo discharge to truck initiated.`);
+
+    try {
+      await api.post('/supply-chain/gate-scan', { plate, gatePassId });
+    } catch (e) {}
+
+    try {
+      const bc = new BroadcastChannel("astra_supply_chain");
+      bc.postMessage({ type: "GATE_CLEARED", plate, gatePassId });
+      bc.close();
+    } catch (e) {}
+  };
+
+  // Multi-laptop real-time synchronization poller
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    let isMounted = true;
+    const syncState = async () => {
       try {
-        sessionStorage.removeItem("astra_sim_active");
-        localStorage.removeItem("astra_requirement");
-      } catch (e) {}
+        const res = await api.get('/supply-chain/state');
+        const s = res.data;
+        if (!s || !isMounted) return;
+
+        // If requirement updated on server (e.g. booked on laptop 1, accepted on laptop 2)
+        if (s.requirement) {
+          setRequirementState(prev => {
+            if (!prev || prev.id !== s.requirement.id || prev.status !== s.requirement.status || prev.contractorAccepted !== s.requirement.contractorAccepted) {
+              return s.requirement;
+            }
+            return prev;
+          });
+          if (s.simActive) {
+            setSimActiveState(true);
+          }
+        }
+
+        if (s.vesselArrivedAtPort !== undefined) {
+          setVesselArrivedAtPort(s.vesselArrivedAtPort);
+        }
+        if (s.gateCleared !== undefined) {
+          setGateCleared(s.gateCleared);
+        }
+        if (s.waitingForTruckGateScan !== undefined) {
+          setWaitingForTruckGateScan(s.waitingForTruckGateScan && !s.gateCleared);
+        }
+
+        // Client-side simulation drives progress smoothly; avoid server polling jitter
+      } catch (err) {}
     };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+
+    syncState();
+    const interval = setInterval(syncState, 800);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // BroadcastChannel for instant 0ms sync across tabs on same machine
+  useEffect(() => {
+    let bc;
+    try {
+      bc = new BroadcastChannel("astra_supply_chain");
+      bc.onmessage = (ev) => {
+        const msg = ev.data;
+        if (!msg) return;
+        if (msg.type === "CONTRACTOR_ACCEPTED") {
+          setRequirementState(msg.requirement);
+          setSimActiveState(true);
+          setSimProgress(0);
+          setIsPlaying(true);
+          setVesselArrivedAtPort(false);
+          setWaitingForTruckGateScan(false);
+          setGateCleared(false);
+        } else if (msg.type === "VESSEL_ARRIVED") {
+          setVesselArrivedAtPort(true);
+          setWaitingForTruckGateScan(true);
+        } else if (msg.type === "GATE_CLEARED") {
+          setGateCleared(true);
+          setWaitingForTruckGateScan(false);
+        }
+      };
+    } catch (e) {}
+    return () => {
+      try { bc && bc.close(); } catch (e) {}
+    };
   }, []);
 
   // Central company requirements for Contractor Confirmation Dashboard
@@ -487,6 +572,7 @@ export function FlowProvider({ children }) {
           requiredArrivalDate: req.requiredArrivalDate || "2026-09-18",
           targetFreightRatePerTon: req.costBreakdown?.oceanFreightRatePerTon || 11.40,
           status: req.status === "ACTIVE_IN_TRANSIT" ? "ACCEPTED" : (req.status || "PENDING_REVIEW"),
+          contractorAccepted: Boolean(req.contractorAccepted),
           createdAt: "Just now",
           assignedVessel: req.selectedVessel,
           isNewlyCreated: true
@@ -526,14 +612,43 @@ export function FlowProvider({ children }) {
         ? requirement
         : (companyRequirements.find(r => r.id === reqId) || fixturesList.find(f => f.id === reqId));
       if (baseReq) {
-        setRequirement({
+        const assignedVesselObj = decision.assignedVessel || baseReq.selectedVessel || baseReq.assignedVessel || {
+          name: "MV Bengal Voyager",
+          category: baseReq.preferredVesselCategory || "Panamax",
+          dwt: 74000
+        };
+        const updated = {
           ...baseReq,
           status: "ACTIVE_IN_TRANSIT",
           contractorAccepted: true,
-          selectedVessel: decision.assignedVessel || baseReq.selectedVessel,
+          acceptanceDate: new Date().toISOString(),
+          selectedVessel: assignedVesselObj,
+          assignedVessel: assignedVesselObj,
           contractorNote: decision.contractorNote
-        });
+        };
+        setSelectedVessel(assignedVesselObj);
+        setRequirement(updated);
+        setSimProgress(0);
+        setIsPlaying(true);
         setSimActive(true);
+        setVesselArrivedAtPort(false);
+        setWaitingForTruckGateScan(false);
+        setGateCleared(false);
+
+        try {
+          api.post('/supply-chain/state', {
+            requirement: updated,
+            simActive: true,
+            simProgress: 0,
+            isPlaying: true,
+            vesselArrivedAtPort: false,
+            waitingForTruckGateScan: false,
+            gateCleared: false
+          });
+          const bc = new BroadcastChannel("astra_supply_chain");
+          bc.postMessage({ type: "CONTRACTOR_ACCEPTED", requirement: updated });
+          bc.close();
+        } catch (e) {}
       }
     } else if (decision.status === "REJECTED_WITH_SOLUTION") {
       addEvent({
@@ -578,24 +693,54 @@ export function FlowProvider({ children }) {
     }
   };
 
-  const acceptContractorFixture = (reqId) => {
+  const acceptContractorFixture = async (reqId) => {
     const target = (requirement?.id === reqId ? requirement : null)
       || companyRequirements.find(c => c.id === reqId) 
       || fixturesList.find(f => f.id === reqId) 
       || requirement 
       || SINGAPORE_DHAMRA_REQUIREMENT;
 
+    const vesselObj = target.selectedVessel || target.assignedVessel || {
+      name: "MV Asian Express",
+      category: target.preferredVesselCategory || "Panamax",
+      dwt: 75000
+    };
+
     const updated = {
       ...target,
       contractorAccepted: true,
       acceptanceDate: new Date().toISOString(),
-      status: "ACTIVE_IN_TRANSIT"
+      status: "ACTIVE_IN_TRANSIT",
+      selectedVessel: vesselObj,
+      assignedVessel: vesselObj
     };
+    setSelectedVessel(vesselObj);
     setRequirement(updated);
     setSimProgress(0);
     setIsPlaying(true);
     setSimActive(true);
+    setVesselArrivedAtPort(false);
+    setWaitingForTruckGateScan(false);
+    setGateCleared(false);
     toast.success(`✅ Fixture #${updated.id} Accepted & Confirmed! Vessel dispatched on sea lane.`);
+
+    try {
+      await api.post('/supply-chain/state', {
+        requirement: updated,
+        simActive: true,
+        simProgress: 0,
+        isPlaying: true,
+        vesselArrivedAtPort: false,
+        waitingForTruckGateScan: false,
+        gateCleared: false
+      });
+    } catch (e) {}
+
+    try {
+      const bc = new BroadcastChannel("astra_supply_chain");
+      bc.postMessage({ type: "CONTRACTOR_ACCEPTED", requirement: updated });
+      bc.close();
+    } catch (e) {}
   };
 
   const markFixtureCompleted = (reqId) => {
@@ -641,7 +786,7 @@ export function FlowProvider({ children }) {
   };
 
   // Quick book helper for Singapore -> Dhamra shipment
-  const bookSampleSingaporeDhamra = () => {
+  const bookSampleSingaporeDhamra = async () => {
     const booking = {
       ...SINGAPORE_DHAMRA_REQUIREMENT,
       id: `REQ-${Date.now().toString().slice(-4)}`,
@@ -653,6 +798,22 @@ export function FlowProvider({ children }) {
     setSimActive(false);
     setSimProgress(0);
     setIsPlaying(false);
+    setVesselArrivedAtPort(false);
+    setWaitingForTruckGateScan(false);
+    setGateCleared(false);
+
+    try {
+      await api.post('/supply-chain/state', {
+        requirement: booking,
+        simActive: false,
+        simProgress: 0,
+        isPlaying: false,
+        vesselArrivedAtPort: false,
+        waitingForTruckGateScan: false,
+        gateCleared: false
+      });
+    } catch (e) {}
+
     addEvent({
       id: `EV-${Date.now()}`,
       type: "NEW_REQUIREMENT_CREATED",
@@ -1011,9 +1172,9 @@ export function FlowProvider({ children }) {
       .catch(err => console.log("Truck telematics sync notice:", err.message));
   }, []);
 
-  // Simulation Engine State
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [simProgress, setSimProgress] = useState(48); // 0 to 100%
+  // Simulation Engine State — isPlaying starts FALSE; only true after contractor accepts fixture
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [simProgress, setSimProgress] = useState(0); // 0 to 100%
   const [simSpeed, setSimSpeed] = useState(1); // 1x, 2x, 5x
   const [activeScenario, setActiveScenario] = useState("normal"); // "normal" | "weather_delay" | "port_congestion"
   
@@ -1043,8 +1204,24 @@ export function FlowProvider({ children }) {
         // Clamped at 57% so last-mile delivery never triggers while main vessel is held in sea
         if (weatherDelayActive && !berthReallocated && prev >= 57) return prev;
 
-        // When resumed after berth clearance, move smoothly and slowly so the user can easily observe the voyage
-        const step = (weatherDelayActive && berthReallocated) ? (0.15 * (simSpeed || 1)) : (0.28 * (simSpeed || 1));
+        // Approaching destination port notice (at 85%)
+        if (prev >= 85 && !vesselArrivedAtPort) {
+          setVesselArrivedAtPort(true);
+          try {
+            api.post('/supply-chain/state', {
+              vesselArrivedAtPort: true,
+              waitingForTruckGateScan: true
+            });
+            const bc = new BroadcastChannel("astra_supply_chain");
+            bc.postMessage({ type: "VESSEL_ARRIVED", vesselArrivedAtPort: true, waitingForTruckGateScan: true });
+            bc.close();
+          } catch (e) {}
+        }
+
+        // Continuous smooth, realistic maritime progression along assigned corridor
+        // Slowed down to ~0.12% per 100ms tick (~80s total voyage at 1x) for clear, smooth observation
+        const baseStep = (weatherDelayActive && berthReallocated) ? 0.08 : 0.12;
+        const step = baseStep * (simSpeed || 1);
         const next = prev + step;
         if (next >= 100) {
           setIsPlaying(false);
@@ -1054,36 +1231,23 @@ export function FlowProvider({ children }) {
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [isPlaying, simSpeed, weatherDelayActive, berthReallocated]);
+  }, [isPlaying, simSpeed, weatherDelayActive, berthReallocated, vesselArrivedAtPort]);
 
-  // When simProgress reaches 100%, stop simulation and mark fixture as completed in context fixtures and history.
-  // After a short delay, auto-clear simActive & requirement so Dashboard returns to the clean map-only view.
+  // When simProgress reaches 100%, stop simulation and notify completion, keeping vessel safely berthed
   useEffect(() => {
     if (simProgress >= 100) {
       setIsPlaying(false);
       if (requirement && requirement.status === "ACTIVE_IN_TRANSIT") {
-        markFixtureCompleted(requirement.id);
-        toast.success("🏁 Multimodal Transit Completed! Material delivered to plant. Fixture marked as COMPLETED.");
-        // Auto-transition: after 3.5s, clear session so Dashboard returns to clean map (no routes)
-        const autoResetTimer = setTimeout(() => {
-          setSimActive(false);
-          setRequirementState(null);
-          try {
-            sessionStorage.removeItem("astra_sim_active");
-            localStorage.removeItem("astra_requirement");
-          } catch (e) {}
-          toast("🗺️ Returning to clean radar view…", { icon: "🔄", duration: 2000 });
-        }, 3500);
-        return () => clearTimeout(autoResetTimer);
+        toast.success("⚓ Sea transit complete! Vessel safely berthed at discharge port for quayside handling.", { duration: 4000 });
       }
     }
-  }, [simProgress]);
+  }, [simProgress, requirement]);
 
   // Secondary vessel approach animation ticker (runs when weatherDelayActive & not yet reallocated)
   useEffect(() => {
     if (!weatherDelayActive || berthReallocated) return;
     const interval = setInterval(() => {
-      setFeederProgress((prev) => Math.min(100, prev + 0.35 * (simSpeed || 1)));
+      setFeederProgress((prev) => Math.min(100, prev + 0.12 * (simSpeed || 1)));
     }, 100);
     return () => clearInterval(interval);
   }, [weatherDelayActive, berthReallocated, simSpeed]);
@@ -1092,7 +1256,7 @@ export function FlowProvider({ children }) {
   useEffect(() => {
     if (!feederDeparting) return;
     const interval = setInterval(() => {
-      setFeederDepartProgress((prev) => Math.min(100, prev + 0.45 * (simSpeed || 1)));
+      setFeederDepartProgress((prev) => Math.min(100, prev + 0.16 * (simSpeed || 1)));
     }, 100);
     return () => clearInterval(interval);
   }, [feederDeparting, simSpeed]);
@@ -1110,6 +1274,15 @@ export function FlowProvider({ children }) {
     setFeederDepartProgress(0);
     setPortCongestionActive(false);
     setPortDiverted(false);
+    setVesselArrivedAtPort(false);
+    setWaitingForTruckGateScan(false);
+    setGateCleared(false);
+    try {
+      api.post('/supply-chain/reset');
+      const bc = new BroadcastChannel("astra_supply_chain");
+      bc.postMessage({ type: "SIM_RESET" });
+      bc.close();
+    } catch (e) {}
   };
 
   const triggerWeatherDelay = () => {
@@ -1179,13 +1352,22 @@ export function FlowProvider({ children }) {
         details: `${vesselName} (${vesselCat}) cruising at 13.8 kts`
       };
     }
+    if (waitingForTruckGateScan || (simProgress >= 75 && !gateCleared)) {
+      return {
+        stage: 4,
+        name: "Vessel Berthed · Awaiting Truck QR Gate Scan",
+        mode: "PORT",
+        location: `${destPort} Mechanized Berth #01`,
+        details: `${vesselName} berthed at quay. Unloading paused until Road Fleet scans PCS 1x Digital Gate Pass at Port Gate 01.`
+      };
+    }
     if (simProgress < 85) {
       return { 
         stage: 4, 
-        name: "Destination Port Berth Discharge", 
+        name: "Port Berth Discharge & Truck Loading", 
         mode: "PORT", 
         location: portDiverted ? "Krishnapatnam Port Berth #4" : `${destPort} Bulk Berth #2`,
-        details: `Mobile cranes discharging directly into waiting road trucks & hopper silos`
+        details: `Gate cleared! Mobile cranes discharging directly into road fleet tippers`
       };
     }
     return { 
@@ -1233,6 +1415,12 @@ export function FlowProvider({ children }) {
         isLiveTruckData, setIsLiveTruckData,
         isLiveVesselData, setIsLiveVesselData,
         
+        // Multi-modal Relay State & Synchronized Gate Passing
+        vesselArrivedAtPort, setVesselArrivedAtPort,
+        waitingForTruckGateScan, setWaitingForTruckGateScan,
+        gateCleared, setGateCleared,
+        scanGatePass,
+
         // Simulation Engine
         isPlaying, setIsPlaying, togglePlay,
         simProgress, setSimProgress,

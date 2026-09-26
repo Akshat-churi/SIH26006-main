@@ -46,10 +46,348 @@ const BASEMAP_TILES = {
   }
 };
 
+// Realistic maritime waypoints generator for East Coast India supply corridors
+export const PORT_COORDINATES_MAP = {
+  Paradip: [20.2644, 86.6685],
+  Visakhapatnam: [17.6868, 83.2185],
+  Dhamra: [20.8145, 86.9634],
+  Haldia: [22.0232, 88.0645],
+  Kolkata: [22.5726, 88.3639],
+  Chennai: [13.0827, 80.2707],
+  Gangavaram: [17.6200, 83.2300],
+  Gopalpur: [19.3093, 84.9667],
+  Kakinada: [16.9891, 82.2475],
+  Krishnapatnam: [14.2500, 80.1200],
+  Kamarajar: [13.2500, 80.3300],
+  "V.O. Chidambaranar": [8.7642, 78.1348],
+  Tuticorin: [8.7642, 78.1348],
+  Singapore: [1.2655, 103.8198],
+  Newcastle: [-32.9283, 151.7817],
+  "Hay Point": [-21.2858, 149.3000],
+  Gladstone: [-23.8427, 151.2555],
+  "Port Hedland": [-20.3167, 118.5760],
+  "Richards Bay": [-28.8000, 32.0833],
+  Durban: [-29.8587, 31.0218],
+  Balikpapan: [-1.2654, 116.8312],
+  Samarinda: [-0.5022, 117.1536],
+  Taboneo: [-3.6167, 114.4833],
+  Maputo: [-25.9692, 32.5732],
+  "Ust-Luga": [59.6833, 28.3167],
+  Vostochny: [42.7333, 133.0833]
+};
+
+export function getPortCoord(name, defaultPt) {
+  if (!name) return defaultPt;
+  if (PORT_COORDINATES_MAP[name]) return PORT_COORDINATES_MAP[name];
+  const lower = String(name).toLowerCase();
+  for (const [k, v] of Object.entries(PORT_COORDINATES_MAP)) {
+    if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) {
+      return v;
+    }
+  }
+  return defaultPt;
+}
+
+// Realistic maritime waypoints generator for East Coast India supply corridors
+export function generateNauticalWaypoints(origin, destination) {
+  const originPt = getPortCoord(origin, [1.2655, 103.8198]);
+  const destPt = getPortCoord(destination, [20.8145, 86.9634]);
+  const lowerOrig = String(origin || "").toLowerCase();
+  const lowerDest = String(destination || "").toLowerCase();
+
+  // Reference safe coastal passage waypoints along India's East Coast (ordered North to South)
+  // Deep-water navigation corridor (30-50 NM offshore) in the Bay of Bengal
+  const EAST_COAST_CORRIDOR = [
+    { name: "Haldia/Kolkata", lat: 21.80, lon: 88.30 },
+    { name: "Dhamra",         lat: 20.80, lon: 87.35 },
+    { name: "Paradip",        lat: 20.15, lon: 87.15 },
+    { name: "Gopalpur",       lat: 19.10, lon: 85.50 },
+    { name: "Visakhapatnam",  lat: 17.50, lon: 83.85 },
+    { name: "Kakinada",       lat: 16.70, lon: 82.80 },
+    { name: "Krishnapatnam",  lat: 14.20, lon: 80.65 },
+    { name: "Chennai",        lat: 13.00, lon: 80.75 },
+    { name: "Tuticorin",      lat: 8.50,  lon: 78.60 }
+  ];
+
+  const eastCoastNames = [
+    "paradip", "visakhapatnam", "dhamra", "haldia", "kolkata",
+    "chennai", "gangavaram", "gopalpur", "kakinada", "krishnapatnam",
+    "kamarajar", "chidambaranar", "tuticorin"
+  ];
+
+  const isOrigEastCoast = eastCoastNames.some(ep => lowerOrig.includes(ep));
+  const isDestEastCoast = eastCoastNames.some(ep => lowerDest.includes(ep));
+
+  // Case A: Domestic Coastal Shipping (between any two Indian East Coast ports)
+  if (isOrigEastCoast && isDestEastCoast) {
+    const lat1 = originPt[0];
+    const lat2 = destPt[0];
+    const waypoints = [originPt];
+
+    if (lat1 > lat2) {
+      // Sailing North to South (e.g., Paradip -> Krishnapatnam, Dhamra -> Chennai)
+      const inter = EAST_COAST_CORRIDOR.filter(p => p.lat < lat1 - 0.25 && p.lat > lat2 + 0.25);
+      inter.forEach(p => waypoints.push([p.lat, p.lon]));
+    } else {
+      // Sailing South to North (e.g., Chennai -> Paradip, Krishnapatnam -> Dhamra)
+      const inter = EAST_COAST_CORRIDOR.filter(p => p.lat > lat1 + 0.25 && p.lat < lat2 - 0.25).reverse();
+      inter.forEach(p => waypoints.push([p.lat, p.lon]));
+    }
+
+    waypoints.push(destPt);
+    return waypoints;
+  }
+
+  // Helper: Open-ocean entry into Bay of Bengal customized for target East Coast destination port
+  const getBayOfBengalApproach = (destTargetPt) => {
+    const targetLat = destTargetPt[0];
+    const approachWaypoints = [];
+
+    if (targetLat >= 20.0) {
+      // Northern ports: Dhamra, Paradip, Haldia
+      approachWaypoints.push([11.5, 90.0], [15.5, 88.5], [18.5, 87.5], [20.0, 87.2]);
+    } else if (targetLat >= 16.0) {
+      // Central ports: Visakhapatnam, Gopalpur, Gangavaram, Kakinada
+      approachWaypoints.push([11.0, 88.5], [14.5, 86.0], [16.8, 84.2]);
+    } else if (targetLat >= 12.0) {
+      // South Central ports: Krishnapatnam, Chennai, Kamarajar
+      approachWaypoints.push([9.5, 87.5], [12.0, 84.0], [13.8, 81.2]);
+    } else {
+      // Southern ports: Tuticorin / V.O. Chidambaranar
+      approachWaypoints.push([6.5, 85.0], [5.8, 80.5], [7.5, 78.8]);
+    }
+
+    return approachWaypoints;
+  };
+
+  // Case B: Singapore / SE Asia Corridor (via Malacca Strait & Ten Degree Channel)
+  if (!origin || lowerOrig.includes("singapore") || lowerOrig.includes("jurong") || lowerOrig.includes("malacca")) {
+    const approach = getBayOfBengalApproach(destPt);
+    return [
+      originPt,
+      [1.85, 102.50],
+      [2.85, 101.00],
+      [5.50, 98.00],
+      [6.00, 95.00],
+      [6.80, 93.50],
+      ...approach,
+      destPt
+    ];
+  }
+
+  // Case C: Australia (Newcastle, Hay Point, Gladstone, Port Hedland)
+  if (lowerOrig.includes("newcastle") || lowerOrig.includes("hay point") || lowerOrig.includes("gladstone") || lowerOrig.includes("hedland") || lowerOrig.includes("australia")) {
+    const approach = getBayOfBengalApproach(destPt);
+    const startPoints = lowerOrig.includes("hedland")
+      ? [originPt, [-17.0, 115.0], [-12.0, 108.0], [-5.9, 105.8], [6.0, 95.0]]
+      : [originPt, [-15.0, 147.0], [-10.5, 142.5], [-8.5, 115.5], [-5.9, 105.8], [6.0, 95.0]];
+    return [
+      ...startPoints,
+      ...approach,
+      destPt
+    ];
+  }
+
+  // Case D: South / East Africa (Richards Bay, Durban, Maputo)
+  if (lowerOrig.includes("richards") || lowerOrig.includes("durban") || lowerOrig.includes("maputo") || lowerOrig.includes("africa")) {
+    const approach = destPt[0] < 12.0
+      ? [[8.0, 79.5]]
+      : destPt[0] < 16.0
+        ? [[11.5, 81.5]]
+        : [[12.0, 83.5], [16.5, 85.0]];
+    return [
+      originPt,
+      [-16.0, 44.0],
+      [-5.0, 65.0],
+      [4.5, 76.0],
+      [5.8, 80.5],
+      [7.5, 82.5],
+      ...approach,
+      destPt
+    ];
+  }
+
+  // Case E: Indonesia (Taboneo, Balikpapan, Samarinda)
+  if (lowerOrig.includes("taboneo") || lowerOrig.includes("balikpapan") || lowerOrig.includes("samarinda") || lowerOrig.includes("indonesia")) {
+    const approach = getBayOfBengalApproach(destPt);
+    return [
+      originPt,
+      [-5.85, 105.85],
+      [-2.0, 96.0],
+      [3.5, 93.5],
+      [7.0, 92.5],
+      ...approach,
+      destPt
+    ];
+  }
+
+  // Case F: Inbound reverse (origin is Indian East Coast, destination is overseas)
+  if (isOrigEastCoast && !isDestEastCoast) {
+    const forwardRoute = generateNauticalWaypoints(destination, origin);
+    return [...forwardRoute].reverse();
+  }
+
+  // Case G: General Nautical Corridors
+  return [
+    originPt,
+    [Math.min(originPt[0], destPt[0]) + Math.abs(originPt[0] - destPt[0]) * 0.35, Math.max(originPt[1], destPt[1]) + 2.0],
+    [Math.min(originPt[0], destPt[0]) + Math.abs(originPt[0] - destPt[0]) * 0.70, Math.max(destPt[1] + 1.0, 86.0)],
+    destPt
+  ];
+}
+
+// Computes position [lat, lon] and heading along waypoint path based on progress 0-100%
+// The sea transit corridor completes cleanly between progress 0% and 100%.
+// At progress 100%, the vessel arrives at the destination port berth.
+export function calculateVesselPosOnRoute(waypoints, progress) {
+  if (!waypoints || waypoints.length === 0) return null;
+  if (waypoints.length === 1) {
+    return { 
+      pos: waypoints[0], 
+      heading: 0, 
+      traveledPoints: [waypoints[0]], 
+      remainingPoints: [waypoints[0]] 
+    };
+  }
+
+  const seaNorm = Math.max(0, Math.min(1, (progress || 0) / 100));
+  
+  const dists = [];
+  let total = 0;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const dLat = waypoints[i+1][0] - waypoints[i][0];
+    const dLon = waypoints[i+1][1] - waypoints[i][1];
+    const d = Math.sqrt(dLat * dLat + dLon * dLon);
+    dists.push(d);
+    total += d;
+  }
+
+  if (total === 0) {
+    return { 
+      pos: waypoints[0], 
+      heading: 0, 
+      traveledPoints: [waypoints[0]], 
+      remainingPoints: waypoints 
+    };
+  }
+
+  // Explicitly sitting at source port at 0%
+  if (seaNorm <= 0) {
+    const p1 = waypoints[0];
+    const p2 = waypoints[1];
+    const dLonRad = ((p2[1] - p1[1]) * Math.PI) / 180;
+    const p1LatRad = (p1[0] * Math.PI) / 180;
+    const p2LatRad = (p2[0] * Math.PI) / 180;
+    const y = Math.sin(dLonRad) * Math.cos(p2LatRad);
+    const x = Math.cos(p1LatRad) * Math.sin(p2LatRad) -
+              Math.sin(p1LatRad) * Math.cos(p2LatRad) * Math.cos(dLonRad);
+    const heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    return { 
+      pos: waypoints[0], 
+      heading, 
+      traveledPoints: [waypoints[0]], 
+      remainingPoints: waypoints 
+    };
+  }
+
+  // Explicitly berthed at destination port at >= 100%
+  if (seaNorm >= 1) {
+    const pPrev = waypoints[waypoints.length - 2];
+    const pLast = waypoints[waypoints.length - 1];
+    const dLonRad = ((pLast[1] - pPrev[1]) * Math.PI) / 180;
+    const pPrevLatRad = (pPrev[0] * Math.PI) / 180;
+    const pLastLatRad = (pLast[0] * Math.PI) / 180;
+    const y = Math.sin(dLonRad) * Math.cos(pLastLatRad);
+    const x = Math.cos(pPrevLatRad) * Math.sin(pLastLatRad) -
+              Math.sin(pPrevLatRad) * Math.cos(pLastLatRad) * Math.cos(dLonRad);
+    const heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    return { 
+      pos: waypoints[waypoints.length - 1], 
+      heading, 
+      traveledPoints: waypoints, 
+      remainingPoints: [waypoints[waypoints.length - 1]] 
+    };
+  }
+
+  const target = seaNorm * total;
+  let accumulated = 0;
+
+  for (let i = 0; i < dists.length; i++) {
+    if (accumulated + dists[i] >= target || i === dists.length - 1) {
+      const segT = dists[i] > 0 ? (target - accumulated) / dists[i] : 0;
+      const p1 = waypoints[i];
+      const p2 = waypoints[i+1];
+      const lat = p1[0] + (p2[0] - p1[0]) * segT;
+      const lon = p1[1] + (p2[1] - p1[1]) * segT;
+
+      const dLonRad = ((p2[1] - p1[1]) * Math.PI) / 180;
+      const p1LatRad = (p1[0] * Math.PI) / 180;
+      const p2LatRad = (p2[0] * Math.PI) / 180;
+
+      const y = Math.sin(dLonRad) * Math.cos(p2LatRad);
+      const x = Math.cos(p1LatRad) * Math.sin(p2LatRad) -
+                Math.sin(p1LatRad) * Math.cos(p2LatRad) * Math.cos(dLonRad);
+      const heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+      const currentPos = [lat, lon];
+      const traveledPoints = [...waypoints.slice(0, i + 1), currentPos];
+      const remainingPoints = [currentPos, ...waypoints.slice(i + 1)];
+
+      return { pos: currentPos, heading, traveledPoints, remainingPoints };
+    }
+    accumulated += dists[i];
+  }
+
+  return { 
+    pos: waypoints[waypoints.length - 1], 
+    heading: 0, 
+    traveledPoints: waypoints, 
+    remainingPoints: [waypoints[waypoints.length - 1]] 
+  };
+}
+
+function createVesselMarkerHtml(vessel, heading, pulseColor, routePct) {
+  return `
+    <div class="relative cursor-pointer group" style="transform: rotate(${heading}deg); transform-origin: center center;">
+      <!-- Steady Radar Halo Glow (Calm pulse, NO strobe / NO vibration) -->
+      <div class="absolute -inset-2 rounded-full border border-cyan-400/40 bg-cyan-400/15 animate-pulse"></div>
+      <div class="absolute -inset-1 rounded-full" style="background-color: ${pulseColor}25"></div>
+      
+      <!-- Forward Radar Beam -->
+      <div class="absolute left-1/2 -top-8 -translate-x-1/2 w-0.5 h-8 pointer-events-none" style="background: linear-gradient(to top, ${pulseColor}, transparent)"></div>
+
+      <svg width="40" height="40" viewBox="0 0 44 44" class="filter drop-shadow-xl">
+        <line x1="22" y1="22" x2="22" y2="4" stroke="${pulseColor}" stroke-width="2" stroke-dasharray="3,2" />
+        <path d="M22,3 C26.5,8.5 28.5,15.5 28.5,31 C28.5,37 25,40 22,40 C19,40 15.5,37 15.5,31 C15.5,15.5 17.5,8.5 22,3 Z" fill="${pulseColor}" stroke="#FFFFFF" stroke-width="2" />
+        <rect x="18.5" y="14" width="7" height="4" fill="#0F172A" rx="0.5" />
+        <rect x="18.5" y="20" width="7" height="4" fill="#0F172A" rx="0.5" />
+        <rect x="19" y="28" width="6" height="5" fill="#0F172A" rx="1" />
+        <circle cx="22" cy="7" r="2" fill="#FDE68A" />
+      </svg>
+      <div style="transform: rotate(-${heading}deg); transform-origin: center center; border-color: ${pulseColor}90;" class="absolute left-9 -top-4 whitespace-nowrap bg-slate-950/95 border px-2 py-0.5 rounded shadow-xl text-[10px] font-bold font-mono text-white flex items-center gap-1.5 pointer-events-none">
+        <span class="w-2 h-2 rounded-full" style="background-color: ${pulseColor}"></span>
+        <span>🚢 ${vessel.name || "Booked Vessel"}</span>
+        <span class="text-amber-300 font-bold">(${routePct}%)</span>
+      </div>
+    </div>
+  `;
+}
+
 export default function NauticalLeafletMap({
-  selectedOrigin = "Newcastle",
-  selectedDestination = "Paradip",
-  showRoute: propShowRoute = true,
+  selectedOrigin = "Singapore",
+  selectedDestination = "Dhamra",
+  showRoute: propShowRoute = false,
+  showSimulation = false,
+  bookedVessel = null,
+  simProgress = 0,
+  isPlaying = false,
+  simSpeed = 1,
+  weatherDelayActive = false,
+  berthReallocated = false,
+  portCongestionActive = false,
+  portDiverted = false,
+  waitingForTruckGateScan = false,
+  gateCleared = false,
   onPortSelect,
   onVesselSelect
 }) {
@@ -57,6 +395,7 @@ export default function NauticalLeafletMap({
   const mapInstanceRef = useRef(null);
   const layersRef = useRef({});
   const markersRef = useRef({});
+  const simElementsRef = useRef(null);
 
   // State
   const [fleet, setFleet] = useState([]);
@@ -131,6 +470,7 @@ export default function NauticalLeafletMap({
 
     // Feature Groups
     const routeGroup = L.featureGroup().addTo(map);
+    const simGroup = L.featureGroup().addTo(map);
     const portsGroup = L.featureGroup().addTo(map);
     const vesselsGroup = L.featureGroup().addTo(map);
     const weatherGroup = L.featureGroup().addTo(map);
@@ -139,6 +479,7 @@ export default function NauticalLeafletMap({
       base: baseLayer,
       seamarks: seamarksLayer,
       route: routeGroup,
+      sim: simGroup,
       ports: portsGroup,
       vessels: vesselsGroup,
       weather: weatherGroup
@@ -227,6 +568,7 @@ export default function NauticalLeafletMap({
   };
 
   useEffect(() => {
+    setRouteData(null);
     fetchLiveData();
     const timer = setInterval(fetchLiveData, 45000); // 45s live sync
     return () => clearInterval(timer);
@@ -303,11 +645,11 @@ export default function NauticalLeafletMap({
 
       const iconHtml = `
         <div class="relative flex items-center justify-center cursor-pointer group">
-          <div class="absolute w-6 h-6 rounded-full animate-ping opacity-40" style="background-color: ${color}"></div>
-          <div class="w-4 h-4 rounded-full border-2 border-white shadow-lg flex items-center justify-center ${isSelected ? 'ring-4 ring-cyan-400 scale-125' : ''}" style="background-color: ${color}">
-            <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
+          <div class="absolute w-5 h-5 rounded-full animate-pulse opacity-25" style="background-color: ${color}"></div>
+          <div class="w-3.5 h-3.5 rounded-full border-2 border-white shadow-md flex items-center justify-center ${isSelected ? 'ring-2 ring-cyan-400' : ''}" style="background-color: ${color}">
+            <div class="w-1 h-1 rounded-full bg-white"></div>
           </div>
-          <div class="absolute left-6 whitespace-nowrap bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded shadow text-[11px] font-semibold text-slate-200 pointer-events-none opacity-90 group-hover:opacity-100 transition-opacity">
+          <div class="absolute left-5 whitespace-nowrap bg-slate-900/90 border border-slate-700/80 px-2 py-0.5 rounded shadow text-[10px] font-semibold text-slate-200 pointer-events-none opacity-90 group-hover:opacity-100 transition-opacity">
             ${port.name} <span class="text-slate-400">(${port.queue} ships)</span>
           </div>
         </div>
@@ -375,7 +717,7 @@ export default function NauticalLeafletMap({
             <!-- Bow Bulb -->
             <circle cx="20" cy="8" r="1.5" fill="#FFFFFF" />
           </svg>
-          ${isSelected ? `<div class="absolute -inset-2 rounded-full border border-cyan-400 animate-ping pointer-events-none"></div>` : ''}
+          ${isSelected ? `<div class="absolute -inset-1.5 rounded-full border border-cyan-400 bg-cyan-400/20 animate-pulse pointer-events-none"></div>` : ''}
         </div>
       `;
 
@@ -421,16 +763,22 @@ export default function NauticalLeafletMap({
     });
   }, [fleet, showVessels, selectedVessel]);
 
-  // Render Real Nautical Route on Map
+  // Render Real Nautical Route on Map (Only when showRoute is true)
   useEffect(() => {
     const map = mapInstanceRef.current;
     const routeGroup = layersRef.current.route;
     if (!map || !routeGroup) return;
 
     routeGroup.clearLayers();
-    if (!showRoute || !routeData || !routeData.waypoints || routeData.waypoints.length === 0) return;
+    if (!showRoute) return;
 
-    const latLngs = routeData.waypoints.map(pt => [pt.lat, pt.lon || pt.lng]);
+    const rawWaypoints = (routeData && routeData.waypoints && routeData.waypoints.length > 0)
+      ? routeData.waypoints.map(pt => [pt.lat, pt.lon || pt.lng])
+      : generateNauticalWaypoints(selectedOrigin, selectedDestination);
+
+    if (!rawWaypoints || rawWaypoints.length < 2) return;
+
+    const latLngs = rawWaypoints;
 
     // Outer Glow / Corridor Ribbon
     const glowLine = L.polyline(latLngs, {
@@ -476,12 +824,233 @@ export default function NauticalLeafletMap({
     // Auto-fit route in view with comfortable padding
     if (latLngs.length > 1) {
       try {
-        map.fitBounds(L.latLngBounds(latLngs), { padding: [50, 50], maxZoom: 7 });
+        map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 7 });
       } catch (e) {
         // ignore
       }
     }
   }, [routeData, showRoute, selectedOrigin, selectedDestination]);
+
+  // Render Booked Vessel Simulation Marker on Route (Only when showRoute && showSimulation)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const simGroup = layersRef.current.sim;
+    if (!map || !simGroup) return;
+
+    if (!showRoute || !showSimulation) {
+      simGroup.clearLayers();
+      simElementsRef.current = null;
+      return;
+    }
+
+    const rawWaypoints = (routeData && routeData.waypoints && routeData.waypoints.length > 0)
+      ? routeData.waypoints.map(pt => [pt.lat, pt.lon || pt.lng])
+      : generateNauticalWaypoints(selectedOrigin, selectedDestination);
+
+    if (!rawWaypoints || rawWaypoints.length < 2) return;
+
+    const vesselPosState = calculateVesselPosOnRoute(rawWaypoints, simProgress);
+    if (!vesselPosState) return;
+
+    const { pos, heading, traveledPoints, remainingPoints } = vesselPosState;
+    const vessel = bookedVessel || { name: "MV Bengal Voyager", category: "Panamax" };
+
+    const isIdleInSwell = weatherDelayActive && !berthReallocated && simProgress >= 55 && simProgress <= 60;
+    const isBerthedAtPort = simProgress >= 99;
+    const routePct = Math.min(100, Math.round(simProgress));
+
+    const pulseColor = isIdleInSwell ? "#EF4444" : isBerthedAtPort ? "#10B981" : "#06B6D4";
+    const statusText = isIdleInSwell 
+      ? "⚠️ Swell Hold (0 kn) · Waiting Berth" 
+      : isBerthedAtPort 
+        ? `⚓ Berthed at ${selectedDestination} · Cargo Discharge Active` 
+        : "13.6 kn · Underway on Sea Lane";
+
+    const routeKey = `${selectedOrigin}->${selectedDestination}->${vessel.name}`;
+
+    // Initialize or rebuild simulation layers only when the active corridor changes
+    if (!simElementsRef.current || simElementsRef.current.key !== routeKey) {
+      simGroup.clearLayers();
+
+      const startPt = rawWaypoints[0];
+      const endPt = rawWaypoints[rawWaypoints.length - 1];
+
+      // 1. Origin Port Beacon (Soft steady glowing halo with calm pulse, no aggressive blinking)
+      const startPinHtml = `
+        <div class="relative flex items-center justify-center pointer-events-none">
+          <div class="absolute w-7 h-7 rounded-full bg-amber-400/20 border border-amber-400/40 animate-pulse"></div>
+          <div class="w-3.5 h-3.5 rounded-full bg-amber-500 border-2 border-white shadow-md"></div>
+          <div class="absolute left-5 whitespace-nowrap bg-slate-950/90 border border-amber-400/80 px-2 py-0.5 rounded shadow text-[10px] font-bold font-mono text-amber-300">
+            ⚓ ORIGIN: ${selectedOrigin}
+          </div>
+        </div>
+      `;
+      const startMarker = L.marker(startPt, {
+        icon: L.divIcon({ html: startPinHtml, className: "sim-start-pin", iconSize: [16, 16], iconAnchor: [8, 8] }),
+        zIndexOffset: 950
+      }).addTo(simGroup);
+
+      // 2. Destination Port Beacon (Soft steady glowing halo with calm pulse)
+      const endPinHtml = `
+        <div class="relative flex items-center justify-center pointer-events-none">
+          <div class="absolute w-7 h-7 rounded-full bg-emerald-400/20 border border-emerald-400/40 animate-pulse"></div>
+          <div class="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white shadow-md"></div>
+          <div class="absolute left-5 whitespace-nowrap bg-slate-950/90 border border-emerald-400/80 px-2 py-0.5 rounded shadow text-[10px] font-bold font-mono text-emerald-300">
+            🎯 DESTINATION: ${selectedDestination}
+          </div>
+        </div>
+      `;
+      const endMarker = L.marker(endPt, {
+        icon: L.divIcon({ html: endPinHtml, className: "sim-end-pin", iconSize: [16, 16], iconAnchor: [8, 8] }),
+        zIndexOffset: 950
+      }).addTo(simGroup);
+
+      // 3. Traveled Wake Trail (Glowing emerald line from Source Port to Vessel)
+      const traveledGlow = L.polyline(traveledPoints && traveledPoints.length > 1 ? traveledPoints : [startPt, startPt], {
+        color: "#10B981",
+        weight: 5,
+        opacity: 0.35,
+        lineCap: "round"
+      }).addTo(simGroup);
+
+      const traveledCore = L.polyline(traveledPoints && traveledPoints.length > 1 ? traveledPoints : [startPt, startPt], {
+        color: "#34D399",
+        weight: 3,
+        opacity: 0.95,
+        lineCap: "round"
+      }).addTo(simGroup);
+
+      // 4. Remaining Navigation Corridor (Bright cyan dashed line from Vessel to Destination)
+      const remainingLine = L.polyline(remainingPoints && remainingPoints.length > 1 ? remainingPoints : rawWaypoints, {
+        color: "#38BDF8",
+        weight: 2.5,
+        dashArray: "6, 6",
+        opacity: 0.85
+      }).addTo(simGroup);
+
+      // 5. Booked Vessel Marker (Leaflet DivIcon updated smoothly without destroying DOM)
+      const vesselMarker = L.marker(pos, {
+        icon: L.divIcon({
+          html: createVesselMarkerHtml(vessel, heading, pulseColor, routePct),
+          className: "booked-vessel-marker",
+          iconSize: [42, 42],
+          iconAnchor: [21, 21]
+        }),
+        zIndexOffset: 1200
+      }).addTo(simGroup);
+
+      simElementsRef.current = {
+        key: routeKey,
+        startMarker,
+        endMarker,
+        traveledGlow,
+        traveledCore,
+        remainingLine,
+        vesselMarker,
+        swellMarker: null,
+        congestionMarker: null
+      };
+
+      try {
+        const bounds = L.latLngBounds([startPt, endPt, pos]);
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 6 });
+      } catch (e) {}
+    }
+
+    const els = simElementsRef.current;
+    if (!els) return;
+
+    // Smoothly update polyline geometry (native Leaflet SVG coordinate update, zero DOM recreate)
+    if (traveledPoints && traveledPoints.length > 1) {
+      els.traveledGlow.setLatLngs(traveledPoints);
+      els.traveledCore.setLatLngs(traveledPoints);
+    }
+    if (remainingPoints && remainingPoints.length > 1) {
+      els.remainingLine.setLatLngs(remainingPoints);
+    }
+
+    // Smoothly update vessel position via setLatLng
+    els.vesselMarker.setLatLng(pos);
+    if (!simGroup.hasLayer(els.vesselMarker)) {
+      els.vesselMarker.addTo(simGroup);
+    }
+    els.vesselMarker.setIcon(L.divIcon({
+      html: createVesselMarkerHtml(vessel, heading, pulseColor, routePct),
+      className: "booked-vessel-marker",
+      iconSize: [42, 42],
+      iconAnchor: [21, 21]
+    }));
+
+    els.vesselMarker.bindPopup(`
+      <div class="p-2.5 font-sans text-slate-800 text-xs min-w-[240px]">
+        <div class="flex items-center justify-between border-b pb-1.5">
+          <span class="font-bold text-sm text-slate-900">${vessel.name || "Booked Vessel"}</span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase bg-emerald-600">BOOKED FIXTURE</span>
+        </div>
+        <div class="mt-2 space-y-1 text-[11px]">
+          <div class="flex justify-between"><span class="text-slate-500">Category:</span> <b>${vessel.category || "Panamax"}</b></div>
+          <div class="flex justify-between"><span class="text-slate-500">Active Corridor:</span> <b class="text-cyan-800">${selectedOrigin} ➔ ${selectedDestination}</b></div>
+          <div class="flex justify-between"><span class="text-slate-500">Sea Transit:</span> <b class="text-emerald-600 font-mono">${routePct}% Completed</b></div>
+          <div class="flex justify-between"><span class="text-slate-500">Live Heading:</span> <b class="font-mono">${Math.round(heading)}°</b></div>
+          <div class="flex justify-between"><span class="text-slate-500">Speed / Status:</span> <b class="text-blue-900">${statusText}</b></div>
+          <div class="flex justify-between"><span class="text-slate-500">Health Score:</span> <span class="text-emerald-600 font-bold">${vessel.healthScore || 96.8}/100</span></div>
+        </div>
+        <div class="mt-2 text-[10px] text-emerald-700 bg-emerald-50 p-1.5 rounded flex items-center justify-between border border-emerald-200">
+          <span class="font-bold">✅ Synchronized Transit</span>
+          <span>Role-Adaptive Active</span>
+        </div>
+      </div>
+    `);
+
+    // Scenario 1: Swell Marker handling (gentle pulse, NO strobe / NO vibration)
+    if (isIdleInSwell) {
+      if (!els.swellMarker) {
+        const swellIcon = L.divIcon({
+          html: `
+            <div class="relative flex items-center justify-center pointer-events-none">
+              <div class="w-14 h-14 rounded-full border-2 border-amber-400 bg-amber-500/10 animate-pulse"></div>
+              <div class="absolute whitespace-nowrap bg-amber-950/95 border border-amber-400 text-amber-200 px-2 py-0.5 rounded font-mono text-[9px] font-bold top-11 shadow-lg">
+                ⚠️ MONSOON SWELL (+10H)
+              </div>
+            </div>
+          `,
+          className: "swell-delay-marker",
+          iconSize: [56, 56],
+          iconAnchor: [28, 28]
+        });
+        els.swellMarker = L.marker(pos, { icon: swellIcon, zIndexOffset: 900 }).addTo(simGroup);
+      } else {
+        els.swellMarker.setLatLng(pos);
+      }
+    } else if (els.swellMarker) {
+      simGroup.removeLayer(els.swellMarker);
+      els.swellMarker = null;
+    }
+
+    // Scenario 2: Congestion Alert at destination port (gentle pulse)
+    if (portCongestionActive && !portDiverted) {
+      if (!els.congestionMarker) {
+        const endPt = rawWaypoints[rawWaypoints.length - 1];
+        const congIcon = L.divIcon({
+          html: `
+            <div class="relative flex items-center justify-center pointer-events-none">
+              <div class="w-12 h-12 rounded-full border border-red-500 bg-red-500/15 animate-pulse"></div>
+              <div class="absolute whitespace-nowrap bg-red-950/95 border border-red-500 text-red-200 px-2 py-0.5 rounded font-mono text-[9px] font-bold -top-8 shadow-lg">
+                🚨 HEAVY CONGESTION (32H DELAY)
+              </div>
+            </div>
+          `,
+          className: "congestion-marker",
+          iconSize: [48, 48],
+          iconAnchor: [24, 24]
+        });
+        els.congestionMarker = L.marker(endPt, { icon: congIcon, zIndexOffset: 960 }).addTo(simGroup);
+      }
+    } else if (els.congestionMarker) {
+      simGroup.removeLayer(els.congestionMarker);
+      els.congestionMarker = null;
+    }
+  }, [showRoute, showSimulation, simProgress, routeData, selectedOrigin, selectedDestination, bookedVessel, weatherDelayActive, berthReallocated, portCongestionActive, portDiverted, gateCleared]);
 
   // Render Weather & Wave Height Overlay
   useEffect(() => {
@@ -554,13 +1123,55 @@ export default function NauticalLeafletMap({
               <Compass className="w-5 h-5 animate-spin-slow" />
             </div>
             <div>
-              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Active Nautical Sea-Lane</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                {showSimulation ? "Active Vessel Transit Simulation" : "Active Nautical Sea-Lane"}
+              </div>
               <div className="text-sm font-extrabold text-white flex items-center gap-2">
                 <span className="text-amber-400">{selectedOrigin}</span>
                 <span className="text-slate-500 font-mono">━━━━▶</span>
                 <span className="text-emerald-400">{selectedDestination}</span>
               </div>
             </div>
+
+            {showSimulation && bookedVessel && (
+              <div className="pl-3 border-l border-slate-700/80 flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  <span>{bookedVessel.name}</span>
+                  <span className="text-amber-300">({Math.round(simProgress)}%)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const map = mapInstanceRef.current;
+                    if (!map || !simElementsRef.current?.vesselMarker) return;
+                    const vesselLatLng = simElementsRef.current.vesselMarker.getLatLng();
+                    map.setView(vesselLatLng, 6, { animate: true });
+                  }}
+                  className="px-2.5 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400 text-cyan-200 text-[10px] font-bold font-mono transition-all flex items-center gap-1 cursor-pointer"
+                  title="Center map on vessel"
+                >
+                  <span>🎯 Center Vessel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const map = mapInstanceRef.current;
+                    if (!map) return;
+                    const rawWaypoints = (routeData && routeData.waypoints && routeData.waypoints.length > 0)
+                      ? routeData.waypoints.map(pt => [pt.lat, pt.lon || pt.lng])
+                      : generateNauticalWaypoints(selectedOrigin, selectedDestination);
+                    if (rawWaypoints && rawWaypoints.length > 1) {
+                      map.fitBounds(L.latLngBounds(rawWaypoints), { padding: [50, 50], maxZoom: 6 });
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded bg-slate-800/80 hover:bg-slate-700 border border-slate-600 text-slate-300 text-[10px] font-bold font-mono transition-all flex items-center gap-1 cursor-pointer"
+                  title="Fit entire corridor into view"
+                >
+                  <span>🗺️ Fit Route</span>
+                </button>
+              </div>
+            )}
 
             {routeData && (
               <div className="pl-3 border-l border-slate-700/80 flex items-center gap-3 text-xs">

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useFlow } from "../lib/flow";
 import { useAuth } from "../lib/auth";
 import { toast } from "sonner";
+import EastCoastMap from "./EastCoastMap";
 import {
   Ship, CheckCircle2, XCircle, Clock, AlertTriangle,
   Building2, ArrowRight, ShieldCheck, Sparkles,
@@ -16,11 +17,25 @@ export default function ContractorConfirmationDashboard() {
     updateContractorDecision,
     shipbuilderHulls,
     pingShipbuilderDesk,
-    eventsList
+    eventsList,
+    requirement,
+    isPlaying, togglePlay,
+    simProgress, setSimProgress,
+    simSpeed, setSimSpeed,
+    weatherDelayActive, triggerWeatherDelay,
+    berthReallocated, approveBerthReallocation,
+    portCongestionActive, triggerPortCongestion,
+    portDiverted, approvePortDiversion,
+    resetSimulation,
+    waitingForTruckGateScan,
+    gateCleared,
+    scanGatePass,
+    simActive
   } = useFlow();
 
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [showLiveMap, setShowLiveMap] = useState(false);
 
   // Modals state
   const [selectedReq, setSelectedReq] = useState(null);
@@ -43,13 +58,13 @@ export default function ContractorConfirmationDashboard() {
   const requirements = companyRequirements || [];
 
   const pendingCount = requirements.filter(r => r.status === "PENDING_REVIEW").length;
-  const acceptedCount = requirements.filter(r => r.status === "ACCEPTED").length;
+  const acceptedCount = requirements.filter(r => r.status === "ACCEPTED" || r.status === "ACTIVE_IN_TRANSIT").length;
   const rejectedCount = requirements.filter(r => r.status === "REJECTED_WITH_SOLUTION").length;
   const waitCount = requirements.filter(r => r.status === "WAIT_SHIPBUILDER").length;
 
   const filteredRequirements = requirements.filter(r => {
     if (filterStatus === "PENDING" && r.status !== "PENDING_REVIEW") return false;
-    if (filterStatus === "ACCEPTED" && r.status !== "ACCEPTED") return false;
+    if (filterStatus === "ACCEPTED" && r.status !== "ACCEPTED" && r.status !== "ACTIVE_IN_TRANSIT") return false;
     if (filterStatus === "REJECTED" && r.status !== "REJECTED_WITH_SOLUTION") return false;
     if (filterStatus === "WAIT" && r.status !== "WAIT_SHIPBUILDER") return false;
 
@@ -84,7 +99,11 @@ export default function ContractorConfirmationDashboard() {
           contractorNote: acceptNote || "Charter confirmed by Tata NYK Fleet Ops."
         });
       }
-      toast.success(`✅ Fixture Confirmed: Allocated ${vesselObj.name} for ${selectedReq.companyName}`);
+      setShowLiveMap(true);
+      setTimeout(() => {
+        document.getElementById("contractor-live-simulation")?.scrollIntoView({ behavior: "smooth" });
+      }, 300);
+      toast.success(`✅ Fixture Confirmed: Allocated ${vesselObj.name} for ${selectedReq.companyName}. Live voyage simulation active on map!`);
     } catch (err) {
       console.error("Error confirming accept fixture:", err);
       toast.error("Error confirming fixture: " + err.message);
@@ -317,7 +336,7 @@ export default function ContractorConfirmationDashboard() {
           ) : (
             filteredRequirements.map((req) => {
               const isPending = req.status === "PENDING_REVIEW";
-              const isAccepted = req.status === "ACCEPTED";
+              const isAccepted = req.status === "ACCEPTED" || req.status === "ACTIVE_IN_TRANSIT";
               const isRejected = req.status === "REJECTED_WITH_SOLUTION";
               const isWait = req.status === "WAIT_SHIPBUILDER";
 
@@ -429,43 +448,67 @@ export default function ContractorConfirmationDashboard() {
 
                       {/* Action Buttons for Contractor */}
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedReq(req);
-                            setSelectedVesselName(shipbuilderHulls?.[0]?.name || "MV Bengal Voyager");
-                            setAcceptNote(`Laycan window confirmed for ${req.requiredArrivalDate}. Allocated from Tata NYK ballast fleet.`);
-                            setActiveModal("ACCEPT");
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-black flex items-center gap-1 shadow cursor-pointer transition-all"
-                          title="Accept and allocate vessel"
-                        >
-                          <Check size={13} />
-                          <span>Accept</span>
-                        </button>
+                        {isAccepted ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 font-mono text-xs font-bold border border-emerald-300 flex items-center gap-1.5">
+                              <CheckCircle2 size={13} className="text-emerald-600" />
+                              <span>Allocated: {req.assignedVessel?.name || req.selectedVessel?.name || "Vessel"}</span>
+                            </span>
+                            <button
+                              onClick={() => {
+                                setShowLiveMap(true);
+                                setTimeout(() => {
+                                  document.getElementById("contractor-live-simulation")?.scrollIntoView({ behavior: "smooth" });
+                                }, 100);
+                              }}
+                              className="px-3.5 py-1.5 rounded-lg bg-blue-900 hover:bg-blue-800 text-white font-mono text-xs font-bold flex items-center gap-1.5 shadow cursor-pointer transition-all"
+                              title="View live multimodal transit simulation on AIS nautical map"
+                            >
+                              <Ship size={14} className="text-amber-300" />
+                              <span>Track Live Voyage Radar ➔</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                setSelectedReq(req);
+                                setSelectedVesselName(shipbuilderHulls?.[0]?.name || "MV Bengal Voyager");
+                                setAcceptNote(`Laycan window confirmed for ${req.requiredArrivalDate}. Allocated from Tata NYK ballast fleet.`);
+                                setActiveModal("ACCEPT");
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-black flex items-center gap-1 shadow cursor-pointer transition-all"
+                              title="Accept and allocate vessel"
+                            >
+                              <Check size={13} />
+                              <span>Accept</span>
+                            </button>
 
-                        <button
-                          onClick={() => {
-                            setSelectedReq(req);
-                            setActiveModal("REJECT");
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-mono text-xs font-black flex items-center gap-1 shadow cursor-pointer transition-all"
-                          title="Decline with specific reason and provide counter-solution"
-                        >
-                          <MessageSquare size={13} />
-                          <span>Reject & Counter</span>
-                        </button>
+                            <button
+                              onClick={() => {
+                                setSelectedReq(req);
+                                setActiveModal("REJECT");
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-mono text-xs font-black flex items-center gap-1 shadow cursor-pointer transition-all"
+                              title="Decline with specific reason and provide counter-solution"
+                            >
+                              <MessageSquare size={13} />
+                              <span>Reject & Counter</span>
+                            </button>
 
-                        <button
-                          onClick={() => {
-                            setSelectedReq(req);
-                            setActiveModal("WAIT");
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-mono text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
-                          title="Put in wait while verifying with shipbuilder"
-                        >
-                          <Clock size={13} />
-                          <span>Wait</span>
-                        </button>
+                            <button
+                              onClick={() => {
+                                setSelectedReq(req);
+                                setActiveModal("WAIT");
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 font-mono text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
+                              title="Put in wait while verifying with shipbuilder"
+                            >
+                              <Clock size={13} />
+                              <span>Wait</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -785,6 +828,60 @@ export default function ContractorConfirmationDashboard() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* LIVE VOYAGE SIMULATION RADAR FOR CONTRACTOR (Shown whenever an accepted fixture is active or contractor requests it) */}
+      {(showLiveMap || Boolean(requirement && (requirement.status === "ACTIVE_IN_TRANSIT" || requirement.contractorAccepted))) && (
+        <div id="contractor-live-simulation" className="space-y-4 pt-6 border-t-2 border-slate-200 animate-in fade-in duration-300">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 text-white p-4 rounded-xl shadow-md border border-blue-900">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-lg bg-emerald-500/20 border border-emerald-400 text-emerald-400 font-bold">
+                <Ship className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 font-mono">Carrier Real-Time Telemetry · Active Transit Corridor</div>
+                <div className="text-sm font-bold text-white">
+                  Live Voyage: {requirement?.originPort || "Singapore"} ➔ {portDiverted ? "Krishnapatnam" : (requirement?.destinationPort || "Dhamra")} ({requirement?.selectedVessel?.name || requirement?.assignedVessel?.name || "MV Bengal Voyager"})
+                </div>
+                <div className="text-xs text-slate-300 font-mono">
+                  Laycan Active · Sea-Lane AIS Tracking · Real-Time Speed & Progress
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1.5 rounded-lg bg-emerald-600/30 border border-emerald-400 text-emerald-300 text-xs font-mono font-bold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Active Transit: {Math.round(simProgress)}%</span>
+              </span>
+            </div>
+          </div>
+
+          <EastCoastMap
+            originPort={requirement?.originPort || "Singapore"}
+            activePort={portDiverted ? "Krishnapatnam" : (requirement?.destinationPort || "Dhamra")}
+            highlightedPorts={[portDiverted ? "Krishnapatnam" : (requirement?.destinationPort || "Dhamra"), "Krishnapatnam", "Visakhapatnam"]}
+            showRoute={true}
+            showSimulation={true}
+            bookedVessel={requirement?.selectedVessel || requirement?.assignedVessel}
+            simProgress={simProgress}
+            isPlaying={isPlaying}
+            simSpeed={simSpeed}
+            onTogglePlay={togglePlay}
+            onResetSimulation={resetSimulation}
+            onSetSimSpeed={setSimSpeed}
+            weatherDelayActive={weatherDelayActive}
+            berthReallocated={berthReallocated}
+            portCongestionActive={portCongestionActive}
+            portDiverted={portDiverted}
+            onTriggerWeatherDelay={triggerWeatherDelay}
+            onApproveBerthReallocation={approveBerthReallocation}
+            onTriggerPortCongestion={triggerPortCongestion}
+            onApprovePortDiversion={approvePortDiversion}
+            waitingForTruckGateScan={waitingForTruckGateScan}
+            gateCleared={gateCleared}
+            onScanGatePass={scanGatePass}
+          />
         </div>
       )}
     </div>

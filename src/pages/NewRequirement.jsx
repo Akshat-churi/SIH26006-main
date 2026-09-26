@@ -91,7 +91,7 @@ const VESSEL_SPECS = {
 export default function NewRequirement() {
   const nav = useNavigate();
   const { user } = useAuth();
-  const { setRequirement, setSelectedVessel, setIsPlaying, setSimProgress, addEvent } = useFlow();
+  const { setRequirement, setSelectedVessel, setIsPlaying, setSimProgress, setSimActive, addEvent } = useFlow();
 
   const [step, setStep] = useState(1);
 
@@ -769,6 +769,9 @@ export default function NewRequirement() {
 
     setRequirement(finalRequirement);
     setSelectedVessel(activePlan.vessel);
+    setSimProgress(0);
+    setIsPlaying(false);
+    if (setSimActive) setSimActive(false);
 
     // Notify Contractor Profile in Real-Time
     if (addEvent) {

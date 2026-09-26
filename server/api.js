@@ -809,5 +809,93 @@ router.post('/events', (req, res) => {
   }
 });
 
+// ==========================================
+// 18. MULTI-CLIENT REAL-TIME SUPPLY CHAIN SYNC
+// (Company ➔ Contractor ➔ Port Operator ➔ Road Fleet)
+// ==========================================
+let sharedSupplyChainState = {
+  requirement: null,
+  simActive: false,
+  simProgress: 0,
+  isPlaying: false,
+  simSpeed: 1,
+  // Detailed lifecycle synchronization flags
+  vesselArrivedAtPort: false,       // true when vessel reaches destination port (75%)
+  waitingForTruckGateScan: false,   // true when vessel is berthed waiting for truck QR scan
+  gateCleared: false,               // true when Road Fleet scans QR gate pass
+  truckLoadingProgress: 0,          // 0 -> 100% (berth crane loading into truck)
+  truckTransitProgress: 0,          // 0 -> 100% (port -> plant corridor)
+  lastScannedPlate: "OD-05-AX-4821",
+  gatePassId: "GP-TATA-8801",
+  lastUpdated: Date.now()
+};
+
+router.get('/supply-chain/state', (req, res) => {
+  res.json(sharedSupplyChainState);
+});
+
+router.post('/supply-chain/state', (req, res) => {
+  try {
+    const updates = req.body || {};
+    sharedSupplyChainState = {
+      ...sharedSupplyChainState,
+      ...updates,
+      lastUpdated: Date.now()
+    };
+    res.json(sharedSupplyChainState);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/supply-chain/gate-scan', (req, res) => {
+  try {
+    const { plate = "OD-05-AX-4821", gatePassId = "GP-TATA-8801" } = req.body || {};
+    sharedSupplyChainState = {
+      ...sharedSupplyChainState,
+      gateCleared: true,
+      waitingForTruckGateScan: false,
+      lastScannedPlate: plate,
+      gatePassId: gatePassId,
+      lastUpdated: Date.now()
+    };
+
+    recordEvent({
+      id: `EV-GATE-${Date.now()}`,
+      type: "PORT_GATE_CLEARED",
+      severity: "SUCCESS",
+      title: `Port Gate Pass QR Verified: ${plate}`,
+      detail: `Digital PCS 1x QR pass ${gatePassId} authorized. Boom barrier raised. Truck entering mechanized berth to collect cargo from vessel.`,
+      roleRecipient: ["road_transporter", "company", "port_operator"]
+    });
+
+    res.json({
+      success: true,
+      state: sharedSupplyChainState
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/supply-chain/reset', (req, res) => {
+  sharedSupplyChainState = {
+    requirement: null,
+    simActive: false,
+    simProgress: 0,
+    isPlaying: false,
+    simSpeed: 1,
+    vesselArrivedAtPort: false,
+    waitingForTruckGateScan: false,
+    gateCleared: false,
+    truckLoadingProgress: 0,
+    truckTransitProgress: 0,
+    lastScannedPlate: "OD-05-AX-4821",
+    gatePassId: "GP-TATA-8801",
+    lastUpdated: Date.now()
+  };
+  res.json(sharedSupplyChainState);
+});
+
 export default router;
 

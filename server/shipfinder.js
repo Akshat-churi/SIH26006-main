@@ -110,12 +110,25 @@ export const ACTIVE_BULK_MMSIS = [
   667002016  // MV BENGAL TRADER
 ];
 
+export function resolvePortCode(input) {
+  if (!input) return "SGSIN";
+  if (PORT_LOCODES[input]) return PORT_LOCODES[input];
+  if (PORT_COORDINATES[input]) return input;
+  const lower = String(input).toLowerCase();
+  for (const [name, code] of Object.entries(PORT_LOCODES)) {
+    if (lower.includes(name.toLowerCase()) || name.toLowerCase().includes(lower)) {
+      return code;
+    }
+  }
+  return "SGSIN";
+}
+
 /**
  * 1. Calculate Real Nautical Route (Port to Port) via ShipFinder
  */
 export async function getLiveRoutePlan(startPortNameOrCode, endPortNameOrCode) {
-  const startCode = PORT_LOCODES[startPortNameOrCode] || startPortNameOrCode;
-  const endCode = PORT_LOCODES[endPortNameOrCode] || endPortNameOrCode;
+  const startCode = resolvePortCode(startPortNameOrCode);
+  const endCode = resolvePortCode(endPortNameOrCode);
 
   const cacheKey = `route_${startCode}_${endCode}`;
   const cached = getCached(cacheKey);
@@ -781,8 +794,17 @@ function generateSyntheticNauticalRoute(startCode, endCode) {
   let intermediate = ORIGIN_SEA_LANE_WAYPOINTS[startCode];
 
   if (!intermediate) {
-    // Fallback: derive corridor from geographic position
-    if (start.lat < -15 && start.lon > 130) {
+    // Domestic Indian coastal corridor
+    if (startCode.startsWith('IN') && endCode.startsWith('IN')) {
+      const lat1 = start.lat;
+      const lat2 = end.lat;
+      const midLat = (lat1 + lat2) / 2;
+      intermediate = [
+        { lat: lat1 + (lat2 > lat1 ? 0.5 : -0.5), lon: Math.max(start.lon + 0.8, 84.5) },
+        { lat: midLat, lon: 85.5 },
+        { lat: lat2 - (lat2 > lat1 ? 0.5 : -0.5), lon: Math.max(end.lon + 0.6, 85.0) }
+      ];
+    } else if (start.lat < -15 && start.lon > 130) {
       intermediate = ORIGIN_SEA_LANE_WAYPOINTS['AUNTL']; // East Australia fallback
     } else if (start.lat < -15 && start.lon > 110) {
       intermediate = ORIGIN_SEA_LANE_WAYPOINTS['AUPHE']; // NW Australia fallback

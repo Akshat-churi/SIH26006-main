@@ -435,11 +435,58 @@ export default function EastCoastMap({
   highlightedPorts = [], 
   onPortClick: propOnPortClick,
   originPort: propOriginPort,
-  showRoute = true
+  showRoute = false,
+  showSimulation = false,
+  bookedVessel = null,
+  simProgress: propSimProgress,
+  isPlaying: propIsPlaying,
+  simSpeed: propSimSpeed,
+  onTogglePlay,
+  onResetSimulation,
+  onSetSimSpeed,
+  weatherDelayActive: propWeatherDelayActive,
+  berthReallocated: propBerthReallocated,
+  portCongestionActive: propPortCongestionActive,
+  portDiverted: propPortDiverted,
+  onTriggerWeatherDelay,
+  onApproveBerthReallocation,
+  onTriggerPortCongestion,
+  onApprovePortDiversion,
+  waitingForTruckGateScan: propWaitingGate,
+  gateCleared: propGateCleared,
+  onScanGatePass
 }) {
-  const { requirement } = useFlow?.() || {};
+  const flow = useFlow?.() || {};
+  const requirement = flow.requirement;
+
+  // Use props if passed, otherwise fallback to flow context
+  const isPlaying = propIsPlaying !== undefined ? propIsPlaying : flow.isPlaying;
+  const togglePlay = onTogglePlay || flow.togglePlay;
+  const simProgress = propSimProgress !== undefined ? propSimProgress : (flow.simProgress || 0);
+  const simSpeed = propSimSpeed !== undefined ? propSimSpeed : (flow.simSpeed || 1);
+  const setSimSpeed = onSetSimSpeed || flow.setSimSpeed;
+  const resetSimulation = onResetSimulation || flow.resetSimulation;
+  const weatherDelayActive = propWeatherDelayActive !== undefined ? propWeatherDelayActive : flow.weatherDelayActive;
+  const berthReallocated = propBerthReallocated !== undefined ? propBerthReallocated : flow.berthReallocated;
+  const portCongestionActive = propPortCongestionActive !== undefined ? propPortCongestionActive : flow.portCongestionActive;
+  const portDiverted = propPortDiverted !== undefined ? propPortDiverted : flow.portDiverted;
+  const triggerWeatherDelay = onTriggerWeatherDelay || flow.triggerWeatherDelay;
+  const approveBerthReallocation = onApproveBerthReallocation || flow.approveBerthReallocation;
+  const triggerPortCongestion = onTriggerPortCongestion || flow.triggerPortCongestion;
+  const approvePortDiversion = onApprovePortDiversion || flow.approvePortDiversion;
+  const waitingForTruckGateScan = propWaitingGate !== undefined ? propWaitingGate : flow.waitingForTruckGateScan;
+  const gateCleared = propGateCleared !== undefined ? propGateCleared : flow.gateCleared;
+  const scanGatePass = onScanGatePass || flow.scanGatePass;
+  const currentLeg = flow.getCurrentLeg ? flow.getCurrentLeg() : { name: "Ocean Transit" };
+  const effectiveBookedVessel = bookedVessel || requirement?.selectedVessel;
+
+  const totalHoursElapsed = Math.floor((simProgress / 100) * 72);
+  const simulatedDay = Math.floor(totalHoursElapsed / 24) + 1;
+  const simulatedHour = totalHoursElapsed % 24;
+  const formattedSimTime = `DAY 0${simulatedDay} · ${simulatedHour < 10 ? `0${simulatedHour}` : simulatedHour}:00 HRS`;
+
   const flowOrigin = requirement?.originPort;
-  const flowDest = requirement?.destinationPort;
+  const flowDest = portDiverted ? "Krishnapatnam" : requirement?.destinationPort;
 
   const [selectedPort, setSelectedPort] = useState(propActivePort || flowDest || "Dhamra");
   const [selectedOrigin, setSelectedOrigin] = useState(propOriginPort || flowOrigin || "Singapore");
@@ -449,8 +496,6 @@ export default function EastCoastMap({
   const [vessels, setVessels] = useState(INITIAL_FLEET);
   const [apiHealth, setApiHealth] = useState(null);
   const [liveTelemetrySource, setLiveTelemetrySource] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [simSpeed, setSimSpeed] = useState(1);
   const [filterCategory, setFilterCategory] = useState("ALL");
   const [mapTheme, setMapTheme] = useState("nautical"); // 'nautical' | 'satellite' | 'tactical'
   const [showShippingLanes, setShowShippingLanes] = useState(true);
@@ -575,7 +620,7 @@ export default function EastCoastMap({
           <div>
             <div className="text-xs uppercase tracking-widest text-blue-300 font-mono font-bold flex items-center gap-2">
               <span>ASTRA Real-Time Maritime GIS</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </div>
             <div className="text-sm font-extrabold text-white" style={{ fontFamily: "Manrope" }}>
               East Coast India & Bay of Bengal Simulation Engine
@@ -586,7 +631,7 @@ export default function EastCoastMap({
         {/* Live VesselAPI Status Badge */}
         <div className="flex items-center gap-2 bg-slate-800/90 border border-emerald-500/40 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-300 shadow-sm" title="VesselAPI Live AIS feed active">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span className="font-bold text-slate-200">VesselAPI AIS:</span>
@@ -626,7 +671,7 @@ export default function EastCoastMap({
         <div className="flex items-center gap-2 text-xs">
           {/* Play/Pause */}
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
+            onClick={togglePlay}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors font-medium"
             title={isPlaying ? "Pause Simulation" : "Resume Simulation"}
           >
@@ -676,12 +721,156 @@ export default function EastCoastMap({
         </div>
       </div>
 
+      {/* IN-MAP REAL-TIME MULTIMODAL SIMULATION HUD (ONLY WHEN BOOKED & ACCEPTED BY CONTRACTOR) */}
+      {showSimulation && showRoute && (
+        <div className="bg-slate-950 text-white px-5 py-3 border-b border-blue-900/60 flex flex-wrap items-center justify-between gap-4 font-mono text-xs shadow-inner">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600/30 border border-blue-400 text-blue-300 grid place-items-center font-bold text-xs">
+              ASTRA
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">
+                  LIVE VOYAGE SIMULATION RADAR
+                </span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <div className="text-sm font-extrabold text-white flex items-center gap-2">
+                <span>{formattedSimTime}</span>
+                <span className="text-slate-500">·</span>
+                <span className="text-cyan-300">{currentLeg.name}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Bar & Percentage */}
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-slate-400 uppercase font-bold">Transit Progress</span>
+            <div className="w-32 md:w-48 h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
+              <div 
+                className="h-full bg-gradient-to-r from-amber-400 via-cyan-400 to-emerald-400 transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.max(0, simProgress))}%` }}
+              />
+            </div>
+            <span className="font-extrabold text-amber-300 text-xs">{Math.round(simProgress)}%</span>
+          </div>
+
+          {/* Simulation Controls & What-If Scenario Triggers */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                if (simProgress >= 100) {
+                  if (onResetSimulation) onResetSimulation();
+                  else resetSimulation();
+                  setTimeout(() => {
+                    if (onTogglePlay) onTogglePlay();
+                    else togglePlay();
+                  }, 50);
+                } else {
+                  if (onTogglePlay) onTogglePlay();
+                  else togglePlay();
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white font-bold transition-all shadow bg-blue-600 hover:bg-blue-500 active:scale-95 text-xs"
+              title={simProgress >= 100 ? "Replay voyage from origin port" : isPlaying ? "Pause simulation" : "Play simulation"}
+            >
+              {simProgress >= 100 ? (
+                <>
+                  <RotateCcw size={13} className="text-emerald-300" />
+                  <span>Replay Voyage</span>
+                </>
+              ) : isPlaying ? (
+                <>
+                  <Pause size={13} />
+                  <span>Pause</span>
+                </>
+              ) : (
+                <>
+                  <Play size={13} />
+                  <span>Play</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={resetSimulation}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 transition-colors"
+              title="Reset Simulation"
+            >
+              <RotateCcw size={14} />
+            </button>
+
+            <div className="flex bg-white/10 rounded-lg p-0.5 font-bold">
+              {[1, 2, 5].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setSimSpeed(s)}
+                  className={`px-2 py-0.5 rounded transition-colors ${simSpeed === s ? "bg-amber-400 text-slate-950 font-extrabold" : "text-slate-300 hover:text-white"}`}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+
+            {/* Scenario 1 & 2 Triggers */}
+            <button
+              onClick={triggerWeatherDelay}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                weatherDelayActive
+                  ? "bg-amber-500 text-slate-950 border-amber-300 shadow-md ring-1 ring-amber-400"
+                  : "bg-white/10 hover:bg-white/20 text-white border-white/20"
+              }`}
+            >
+              ⚡ Swell Delay (+10h)
+            </button>
+
+            <button
+              onClick={triggerPortCongestion}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                portCongestionActive
+                  ? "bg-red-600 text-white border-red-400 shadow-md ring-1 ring-red-400 animate-pulse"
+                  : "bg-white/10 hover:bg-white/20 text-white border-white/20"
+              }`}
+            >
+              🚨 Congestion (Divert)
+            </button>
+          </div>
+
+          {/* Gate scan notice when vessel berthed at port */}
+          {(waitingForTruckGateScan || (simProgress >= 75 && !gateCleared)) && (
+            <div className="w-full flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg bg-amber-950/80 border border-amber-400 text-amber-200 animate-pulse">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">⚓</span>
+                <span>Vessel berthed at {selectedPort} · Quayside unloading paused until Road Fleet scans QR gate pass.</span>
+              </div>
+              <button
+                onClick={() => scanGatePass && scanGatePass()}
+                className="px-3 py-1 rounded bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold shadow text-xs"
+              >
+                Scan QR Gate Pass & Raise Barrier ➔
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {mapEngine === "leaflet" ? (
         <div className="w-full h-[620px]">
           <NauticalLeafletMap 
             selectedOrigin={selectedOrigin}
             selectedDestination={selectedPort}
             showRoute={showRoute}
+            showSimulation={showSimulation}
+            bookedVessel={effectiveBookedVessel}
+            simProgress={simProgress}
+            isPlaying={isPlaying}
+            simSpeed={simSpeed}
+            weatherDelayActive={weatherDelayActive}
+            berthReallocated={berthReallocated}
+            portCongestionActive={portCongestionActive}
+            portDiverted={portDiverted}
+            waitingForTruckGateScan={waitingForTruckGateScan}
+            gateCleared={gateCleared}
             onPortSelect={(port) => handlePortClick(port)}
             onVesselSelect={(vessel) => setSelectedVessel(vessel)}
           />
@@ -872,27 +1061,66 @@ export default function EastCoastMap({
                 <animate attributeName="opacity" values="0.8;0;0.8" dur="2.5s" repeatCount="indefinite" />
               </circle>
 
-              {/* Inbound Trajectory Vector Lines from Overseas Waypoints to Active Port */}
-              <path
-                d={`M 980,600 Q 820,${activePortObj.y + 100} ${activePortObj.x},${activePortObj.y}`}
-                fill="none"
-                stroke="url(#routeGlow)"
-                strokeWidth="2.5"
-                strokeDasharray="8 6"
-              >
-                <animate attributeName="stroke-dashoffset" values="100;0" dur="2s" repeatCount="indefinite" />
-              </path>
+              {(() => {
+                const originPortObj = EAST_COAST_PORTS.find(p => p.id === selectedOrigin || (selectedOrigin && selectedOrigin.toLowerCase().includes(p.id.toLowerCase())));
+                const p0 = originPortObj ? { x: originPortObj.x, y: originPortObj.y } : { x: 980, y: 600 };
+                const p2 = { x: activePortObj.x, y: activePortObj.y };
+                const p1 = originPortObj ? { x: Math.max(p0.x, p2.x) + 70, y: (p0.y + p2.y) / 2 } : { x: 820, y: activePortObj.y + 100 };
+                const pathD = `M ${p0.x},${p0.y} Q ${p1.x},${p1.y} ${p2.x},${p2.y}`;
 
-              {/* Waypoint origin marker on map border */}
-              <g transform="translate(970, 590)">
-                <circle cx="0" cy="0" r="5" fill="#F59E0B" />
-                <circle cx="0" cy="0" r="10" fill="none" stroke="#F59E0B" strokeWidth="1" opacity="0.6">
-                  <animate attributeName="r" values="5;14;5" dur="2s" repeatCount="indefinite" />
-                </circle>
-                <text x="-12" y="-10" fill="#FDE68A" fontSize="9" fontFamily="JetBrains Mono" fontWeight="bold" textAnchor="end">
-                  OVERSEAS CARGO ORIGIN ({selectedOrigin})
-                </text>
-              </g>
+                const t = Math.max(0, Math.min(1, simProgress / 100));
+                const bx = Math.pow(1 - t, 2) * p0.x + 2 * (1 - t) * t * p1.x + Math.pow(t, 2) * p2.x;
+                const by = Math.pow(1 - t, 2) * p0.y + 2 * (1 - t) * t * p1.y + Math.pow(t, 2) * p2.y;
+                const bdx = 2 * (1 - t) * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
+                const bdy = 2 * (1 - t) * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
+                const bAngle = (Math.atan2(bdy, bdx) * 180) / Math.PI + 90;
+                const vesselName = effectiveBookedVessel?.name || "MV Bengal Voyager";
+                const routePct = Math.min(100, Math.round(simProgress));
+
+                return (
+                  <>
+                    {/* Inbound Trajectory Vector Lines from Origin to Destination */}
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke="url(#routeGlow)"
+                      strokeWidth="2.5"
+                      strokeDasharray="8 6"
+                    >
+                      <animate attributeName="stroke-dashoffset" values="100;0" dur="2s" repeatCount="indefinite" />
+                    </path>
+
+                    {/* Waypoint origin marker */}
+                    <g transform={`translate(${p0.x}, ${p0.y})`}>
+                      <circle cx="0" cy="0" r="6" fill="#F59E0B" />
+                      <circle cx="0" cy="0" r="14" fill="none" stroke="#F59E0B" strokeWidth="1.5" opacity="0.7">
+                        <animate attributeName="r" values="6;16;6" dur="2s" repeatCount="indefinite" />
+                      </circle>
+                      <text x="-12" y="-10" fill="#FDE68A" fontSize="9" fontFamily="JetBrains Mono" fontWeight="bold" textAnchor={p0.x > 700 ? "end" : "start"}>
+                        ORIGIN: {selectedOrigin}
+                      </text>
+                    </g>
+
+                    {/* Live Booked Vessel Navigating Route in Tactical Mode */}
+                    {showSimulation && (
+                      <g transform={`translate(${bx}, ${by}) rotate(${bAngle})`}>
+                        <circle cx="0" cy="0" r="22" fill="none" stroke="#10B981" strokeWidth="2" strokeDasharray="4 2">
+                          <animate attributeName="r" values="16;28;16" dur="2s" repeatCount="indefinite" />
+                        </circle>
+                        <g transform="translate(-18, -45)">
+                          <TopDownVesselIcon category={effectiveBookedVessel?.category || "Panamax"} size={36} />
+                        </g>
+                        <g transform={`rotate(${-bAngle}) translate(22, -12)`}>
+                          <rect x="0" y="-10" width={vesselName.length * 6.5 + 24} height="20" rx="3" fill="#020617" stroke="#10B981" strokeWidth="1" />
+                          <text x="6" y="3.5" fill="#6EE7B7" fontSize="9" fontFamily="JetBrains Mono" fontWeight="bold">
+                            🚢 {vesselName} ({routePct}%)
+                          </text>
+                        </g>
+                      </g>
+                    )}
+                  </>
+                );
+              })()}
             </g>
           )}
 

@@ -291,7 +291,15 @@ function getBezierPointAndDerivative(t) {
 }
 
 export default function RoadFleetSimulator() {
-  const { addEvent } = useFlow();
+  const { 
+    addEvent, 
+    requirement, 
+    simProgress, 
+    vesselArrivedAtPort, 
+    waitingForTruckGateScan, 
+    gateCleared, 
+    scanGatePass 
+  } = useFlow();
 
   const [selectedCorridorKey, setSelectedCorridorKey] = useState("paradip_angul");
   const activeCorridor = CORRIDORS[selectedCorridorKey] || CORRIDORS.paradip_angul;
@@ -306,6 +314,55 @@ export default function RoadFleetSimulator() {
   const [gateBoomOpen, setGateBoomOpen] = useState(false);
   const [gateScanning, setGateScanning] = useState(false);
   const [showPassModal, setShowPassModal] = useState(false);
+
+  // Synchronize corridor and dedicated truck to active booked shipment
+  useEffect(() => {
+    if (requirement) {
+      if (requirement.destinationPort === "Dhamra") {
+        setSelectedCorridorKey("dhamra_kalinga");
+      } else if (requirement.destinationPort === "Visakhapatnam") {
+        setSelectedCorridorKey("vizag_pellet");
+      } else {
+        setSelectedCorridorKey("paradip_angul");
+      }
+
+      setTrucksState(prev => prev.map(t => {
+        if (t.id === "TRK-03") {
+          return {
+            ...t,
+            company: requirement.companyName || t.company,
+            companyCode: requirement.companyCode || t.companyCode,
+            cargoType: requirement.cargoType || t.cargoType,
+            plate: "OD-05-AX-4821",
+            gatePassId: "GP-TATA-8801",
+            designatedBay: requirement.destinationWarehouse ? `${requirement.destinationWarehouse} Silos` : t.designatedBay
+          };
+        }
+        return t;
+      }));
+    }
+  }, [requirement]);
+
+  // When gateCleared is triggered from server / other laptop, open boom barrier and admit truck
+  useEffect(() => {
+    if (gateCleared && !gateBoomOpen) {
+      setGateBoomOpen(true);
+      setTrucksState(prev => prev.map(t => {
+        if (t.stage === "AT_PORT_GATE" || t.id === "TRK-03") {
+          return {
+            ...t,
+            gateApprovalStatus: "APPROVED",
+            gateHeldReason: null
+          };
+        }
+        return t;
+      }));
+      const timer = setTimeout(() => {
+        setGateBoomOpen(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [gateCleared]);
 
   const activeTruck = useMemo(() => {
     return trucksState.find(t => t.id === selectedTruckId) || trucksState[0];
@@ -510,6 +567,11 @@ export default function RoadFleetSimulator() {
 
       toast.success(`✅ PORT GATE ACCEPTED: Boom Barrier RAISED for ${trk.company} (${trk.plate})! Authorized to enter berth.`);
 
+      // Sync with server and all other laptops
+      if (scanGatePass) {
+        scanGatePass(trk.plate, trk.gatePassId);
+      }
+
       if (addEvent) {
         addEvent({
           id: `EV-GATE-${Date.now()}`,
@@ -705,6 +767,71 @@ export default function RoadFleetSimulator() {
           </div>
         </div>
       </div>
+
+      {/* Synchronized Multimodal Vessel Arrival & Gate Action Banner */}
+      {(vesselArrivedAtPort || waitingForTruckGateScan || (simProgress >= 75 && !gateCleared)) && (
+        <div className="p-4 rounded-2xl border-2 border-amber-500 bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 text-white shadow-xl flex flex-wrap items-center justify-between gap-4 font-mono animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-amber-500 text-slate-950 grid place-items-center text-2xl font-black shrink-0 shadow-lg">
+              🚢
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-mono">
+                  LIVE MULTIMODAL ARRIVAL · IN-GATE CLEARANCE REQUIRED
+                </span>
+                <span className="text-amber-300 font-bold text-xs">{requirement?.selectedVessel?.name || "MV Bengal Voyager"} berthed at {activeCorridor.portName}</span>
+              </div>
+              <div className="text-sm font-extrabold text-white mt-1">
+                Vessel waiting at berth for Road Fleet. Scan PCS 1x Digital QR Gate Pass to begin vessel-to-truck discharge!
+              </div>
+              <div className="text-xs text-amber-200 mt-0.5">
+                Truck <strong>{activeTruck.plate}</strong> ({activeTruck.company}) is stopped at Port Gate 01. Boom barrier will raise upon QR authorization.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => handleMachineAcceptance(activeTruck)}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer scale-105"
+            >
+              <QrCode size={16} />
+              <span>⚡ Scan QR Gate Pass & Raise Barrier ➔</span>
+            </button>
+            <button
+              onClick={() => setShowPassModal(true)}
+              className="px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 font-bold text-xs border border-white/20 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Eye size={14} />
+              <span>View Pass</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {gateCleared && simProgress >= 75 && (
+        <div className="p-3.5 rounded-xl border border-emerald-500/80 bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 text-white shadow-xl flex flex-wrap items-center justify-between gap-4 font-mono">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 grid place-items-center text-lg font-black shrink-0">
+              ✓
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-emerald-400 text-slate-950 font-mono">
+                  PORT IN-GATE AUTHORIZED
+                </span>
+                <span className="text-emerald-300 font-bold text-xs">Vessel Unloading & Road Transit Active</span>
+              </div>
+              <div className="text-xs text-slate-200 mt-0.5">
+                PCS 1x QR Pass verified. Road Fleet hauliers entering berth, loading coal, and departing for {activeCorridor.warehouseName}.
+              </div>
+            </div>
+          </div>
+          <span className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black shadow">
+            CORRIDOR DISCHARGE ACTIVE
+          </span>
+        </div>
+      )}
 
       {/* 2. OPERATIONAL KPI METRICS STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 font-mono">
@@ -1580,8 +1707,24 @@ export default function RoadFleetSimulator() {
             </div>
 
             <button
+              onClick={() => {
+                handleMachineAcceptance(activeTruck);
+                setShowPassModal(false);
+              }}
+              disabled={gateScanning || activeTruck?.gateApprovalStatus === "APPROVED"}
+              className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
+                activeTruck?.gateApprovalStatus === "APPROVED"
+                  ? "bg-slate-300 text-slate-600 cursor-not-allowed"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              }`}
+            >
+              <QrCode size={15} />
+              <span>{activeTruck?.gateApprovalStatus === "APPROVED" ? "✓ Already Authorized at Gate" : "Scan & Authorize at Port Gate 01 ➔"}</span>
+            </button>
+
+            <button
               onClick={() => setShowPassModal(false)}
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
+              className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
             >
               Close Pass
             </button>

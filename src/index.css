@@ -147,3 +147,15 @@ h1, h2, h3, h4, h5 {
 .astra-sim-tag {
   @apply inline-flex items-center gap-1.5 text-[10px] tracking-widest uppercase font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded;
 }
+
+/* Leaflet DivIcon Overrides for Smooth Vessel Markers */
+.booked-vessel-marker,
+.custom-ship-marker,
+.custom-port-marker,
+.sim-start-pin,
+.sim-end-pin,
+.weather-overlay-marker {
+  background: transparent !important;
+  border: none !important;
+}
+

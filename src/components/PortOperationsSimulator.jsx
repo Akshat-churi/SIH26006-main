@@ -7,6 +7,7 @@ import {
   ShieldAlert, AlertOctagon, CheckCircle, ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
+import { useFlow } from "../lib/flow";
 import TopDownVesselIcon, { 
   CapesizeShipSvg, 
   PanamaxShipSvg, 
@@ -741,7 +742,16 @@ export default function PortOperationsSimulator({
   defaultPort = "Paradip",
   onPortChange
 }) {
-  const [selectedPortId, setSelectedPortId] = useState(defaultPort);
+  const { 
+    requirement, 
+    simProgress, 
+    vesselArrivedAtPort, 
+    waitingForTruckGateScan, 
+    gateCleared, 
+    scanGatePass 
+  } = useFlow();
+
+  const [selectedPortId, setSelectedPortId] = useState(requirement?.destinationPort || defaultPort);
   const activePort = EAST_COAST_PORT_DATABASE[selectedPortId] || EAST_COAST_PORT_DATABASE.Paradip;
 
   // Selected Berth for Inspection Modal
@@ -755,6 +765,95 @@ export default function PortOperationsSimulator({
 
   // Live berths state
   const [liveBerths, setLiveBerths] = useState(activePort.berths);
+
+  const hasTriggeredArrivalRef = useRef(false);
+  const hasTriggeredDepartureRef = useRef(false);
+
+  // Automatically update Berth B-01 when multimodal vessel arrives & gate clearance occurs
+  useEffect(() => {
+    if (vesselArrivedAtPort) {
+      setLiveBerths(prev => prev.map((b, i) => {
+        if (i === 0) { // Berth B-01
+          const vName = requirement?.selectedVessel?.name || "MV Bengal Voyager";
+          const vCat = requirement?.selectedVessel?.category || "Panamax";
+          const cQty = requirement?.cargoQuantity ? `${requirement.cargoQuantity.toLocaleString()} MT Coal` : "70,000 MT Imports";
+          const prog = !gateCleared ? 0 : Math.min(100, Math.max(15, Math.round(((simProgress - 75) / 10) * 100)));
+          return {
+            ...b,
+            status: "OCCUPIED",
+            vessel: {
+              ...b.vessel,
+              name: vName,
+              category: vCat,
+              cargo: cQty,
+              carrier: requirement?.companyName || "Tata Steel",
+              operationType: "DISCHARGE",
+              progressPct: prog,
+              turnaroundHoursRemaining: !gateCleared ? 8.5 : Math.max(0.5, parseFloat((8.5 * (1 - prog / 100)).toFixed(1)))
+            }
+          };
+        }
+        return b;
+      }));
+    }
+  }, [vesselArrivedAtPort, gateCleared, simProgress, requirement]);
+
+  // When vessel reaches destination port (75%), launch INBOUND berthing transit simulation
+  useEffect(() => {
+    if (vesselArrivedAtPort && !hasTriggeredArrivalRef.current) {
+      hasTriggeredArrivalRef.current = true;
+      const vName = requirement?.selectedVessel?.name || "MV Bengal Voyager";
+      const vCat = requirement?.selectedVessel?.category || "Panamax";
+      const cQty = requirement?.cargoQuantity ? `${requirement.cargoQuantity.toLocaleString()} MT Coal` : "70,000 MT Imports";
+
+      setActiveTransit({
+        type: "INBOUND",
+        vessel: {
+          name: vName,
+          category: vCat,
+          cargo: cQty,
+          carrier: requirement?.companyName || "Tata Steel",
+          operationType: "DISCHARGE",
+          draftM: 13.5
+        },
+        berthIndex: 0,
+        progress: 0.0
+      });
+      toast.info(`🚢 Telemetry Arrival: ${vName} entering destination fairway to Berth B-01.`);
+    }
+  }, [vesselArrivedAtPort, requirement]);
+
+  // When truck leaves berth for plant (simProgress >= 90), launch OUTBOUND unberthing departure
+  useEffect(() => {
+    if (gateCleared && simProgress >= 90 && !hasTriggeredDepartureRef.current) {
+      hasTriggeredDepartureRef.current = true;
+      const departingVessel = liveBerths[0]?.vessel || {
+        name: requirement?.selectedVessel?.name || "MV Bengal Voyager",
+        category: "Panamax",
+        operationType: "DISCHARGE"
+      };
+
+      setLiveBerths(prev => {
+        const copy = [...prev];
+        copy[0] = {
+          ...copy[0],
+          status: "FREE",
+          vessel: null,
+          nextAllocated: "Unberthing · Ready for Next Arrival",
+          turnaroundHoursRemaining: 0
+        };
+        return copy;
+      });
+
+      setActiveTransit({
+        type: "OUTBOUND",
+        vessel: departingVessel,
+        berthIndex: 0,
+        progress: 0.0
+      });
+      toast.success(`🏁 Unloading Completed! ${departingVessel.name} unberthed from B-01 and steaming out to sea.`);
+    }
+  }, [gateCleared, simProgress, requirement, liveBerths]);
 
   // Discrete Physical Vessel Transit: exactly ONE ship moving at any time
   // transit = null | { type: "INBOUND"|"OUTBOUND"|"DIVERTING", vessel, berthIndex, progress: 0..1 }
@@ -782,6 +881,8 @@ export default function PortOperationsSimulator({
 
   // Reset function
   const resetSimulation = () => {
+    hasTriggeredArrivalRef.current = false;
+    hasTriggeredDepartureRef.current = false;
     const p = EAST_COAST_PORT_DATABASE[selectedPortId] || EAST_COAST_PORT_DATABASE.Paradip;
     setLiveBerths(p.berths);
     setActiveTransit(null);
@@ -1307,6 +1408,64 @@ export default function PortOperationsSimulator({
           </button>
         </div>
       </div>
+
+      {/* Multimodal Live Vessel Arrival & Gate Clearance Banners */}
+      {(vesselArrivedAtPort || waitingForTruckGateScan || (simProgress >= 75 && !gateCleared)) && (
+        <div className="p-4 rounded-xl border border-amber-400 bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 text-white shadow-xl flex flex-wrap items-center justify-between gap-4 font-mono animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 grid place-items-center text-xl shrink-0">
+              🚢
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-mono">
+                  LIVE MULTIMODAL VESSEL ARRIVAL
+                </span>
+                <span className="text-amber-300 font-bold text-xs">{requirement?.selectedVessel?.name || "MV Bengal Voyager"} berthed at B-01 ({activePort.name})</span>
+              </div>
+              <div className="text-xs text-slate-200 mt-1">
+                Moored safely at <strong>Berth B-01 (Mechanized Import Quay)</strong>. Direct-discharge quay cranes on standby.
+              </div>
+              <div className="text-[11px] text-amber-300 mt-0.5">
+                🛑 <strong>Discharge Blocked:</strong> Waiting for Road Fleet to scan PCS 1x Digital QR Gate Pass at Port In-Gate 01 before STS cranes can discharge coal into tipper trucks.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500 text-xs font-bold animate-pulse flex items-center gap-1.5">
+              <Clock size={13} />
+              <span>Waiting for Road Fleet In-Gate QR Scan</span>
+            </span>
+            <span className="px-2.5 py-1 rounded bg-slate-800 text-amber-300 border border-slate-700 text-[10px] font-bold">
+              Cranes On Hold
+            </span>
+          </div>
+        </div>
+      )}
+
+      {gateCleared && simProgress >= 75 && (
+        <div className="p-3.5 rounded-xl border border-emerald-500/80 bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 text-white shadow-xl flex flex-wrap items-center justify-between gap-4 font-mono">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400 text-emerald-300 grid place-items-center text-lg shrink-0">
+              ⚡
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-emerald-400 text-slate-950 font-mono">
+                  GATE PASS CLEARED & TRUCK ADMITTED
+                </span>
+                <span className="text-emerald-300 font-bold text-xs">Berth B-01 STS Cranes Discharging</span>
+              </div>
+              <div className="text-xs text-slate-200 mt-0.5">
+                Boom barrier raised. Truck OD-05-AX-4821 positioned under gantry. Direct discharge active ({Math.min(100, Math.max(15, Math.round(((simProgress - 75) / 10) * 100)))}% loaded).
+              </div>
+            </div>
+          </div>
+          <span className="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 text-xs font-black shadow">
+            STS CRANES DISCHARGING
+          </span>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* SLEEK SCENARIO 1 ALERT CARD (MINIMAL, ZERO CLUTTER) */}

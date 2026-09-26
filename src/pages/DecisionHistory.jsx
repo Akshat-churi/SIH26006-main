@@ -561,18 +561,9 @@ export default function DecisionHistory() {
                 ) : (
                   <div className="flex items-center gap-2">
                     {isCompany ? (
-                      <div className="flex items-center gap-2">
-                        <span className="px-3 py-1.5 rounded bg-amber-100 text-amber-800 text-xs font-mono font-bold flex items-center gap-1.5 border border-amber-200">
-                          <Clock size={15} /> Awaiting {activeReq?.selectedContractor} Signature
-                        </span>
-                        <button
-                          onClick={handleContractorAccept}
-                          className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold font-mono shadow flex items-center gap-1.5"
-                          title="Simulate contractor approval as company administrator"
-                        >
-                          <UserCheck size={14} /> Instant Approve (Demo)
-                        </button>
-                      </div>
+                      <span className="px-3 py-1.5 rounded bg-amber-100 text-amber-800 text-xs font-mono font-bold flex items-center gap-1.5 border border-amber-200">
+                        <Clock size={15} /> Awaiting {activeReq?.selectedContractor} Signature
+                      </span>
                     ) : (
                       <button
                         onClick={handleContractorAccept}

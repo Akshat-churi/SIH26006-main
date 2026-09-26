@@ -12,6 +12,7 @@ function astraApiPlugin() {
       const app = express();
       app.use(express.json());
       app.use('/api', apiRouter);
+      app.use(apiRouter);
       server.middlewares.use(app);
     }
   };
@@ -29,6 +30,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    host: true, // Exposes to local network so other laptops on Wi-Fi can connect
     open: true,
   },
   build: {

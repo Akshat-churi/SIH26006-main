@@ -240,7 +240,11 @@ export default function Dashboard() {
     getCurrentLeg,
     simActive,
     bookSampleSingaporeDhamra,
-    acceptContractorFixture
+    acceptContractorFixture,
+    waitingForTruckGateScan,
+    vesselArrivedAtPort,
+    gateCleared,
+    scanGatePass
   } = useFlow();
 
   const hasActiveBooking = Boolean(
@@ -251,10 +255,9 @@ export default function Dashboard() {
   );
   const isContractorAccepted = Boolean(
     hasActiveBooking && 
-    requirement.contractorAccepted && 
-    (requirement.status === "ACTIVE_IN_TRANSIT" || requirement.status === "ACCEPTED")
+    (requirement.contractorAccepted || requirement.status === "ACTIVE_IN_TRANSIT" || requirement.status === "ACCEPTED")
   );
-  const showSimulation = Boolean(isContractorAccepted && simActive);
+  const showSimulation = Boolean(isContractorAccepted && (simActive !== false || requirement.status === "ACTIVE_IN_TRANSIT"));
   const hasBookedVessel = showSimulation;
   const currentLeg = getCurrentLeg();
 
@@ -512,13 +515,13 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => acceptContractorFixture(requirement.id)}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-all flex items-center gap-1.5"
-            >
-              <span>⚡ Accept Fixture (Contractor Desk)</span>
-            </button>
-            <span className="px-2.5 py-1 rounded bg-purple-200 text-purple-950 font-bold text-[10px] animate-pulse">Awaiting Confirmation</span>
+            <span className="px-3.5 py-1.5 rounded-lg bg-purple-200 text-purple-950 font-bold text-xs flex items-center gap-1.5 animate-pulse border border-purple-300">
+              <Clock size={13} />
+              <span>Pending Contractor (Carrier) Desk Acceptance</span>
+            </span>
+            <span className="text-[11px] text-purple-800 font-mono italic hidden md:inline">
+              (Awaiting Tata NYK Counter-Signature)
+            </span>
           </div>
         </div>
       )}
@@ -555,522 +558,36 @@ export default function Dashboard() {
       )}
 
       {/* ========================================================================= */}
-      {/* MASTER WORLD MAP 2D MULTIMODAL VISUAL SIMULATION CANVAS (ONLY AFTER ACCEPTING) */}
+      {/* EAST COAST MARITIME & INLAND LOGISTICS MAP WITH INTEGRATED SIMULATION */}
+      {/* (Shows route and simulation ONLY when booked & accepted by contractor) */}
       {/* ========================================================================= */}
-      {showSimulation && (
-          <div className="astra-card p-5 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white shadow-xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-900/60 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-600/30 border border-blue-400 text-blue-300 grid place-items-center font-mono font-bold text-sm">
-              ASTRA
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-mono font-bold text-amber-400 tracking-wider">
-                  2D WORLD MULTIMODAL SIMULATION RADAR
-                </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              </div>
-              <h2 className="text-lg font-extrabold text-white" style={{ fontFamily: "Manrope" }}>
-                {formattedSimTime} · {currentLeg.name}
-              </h2>
-            </div>
-          </div>
-
-          {/* Player Controls */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={togglePlay}
-              disabled={simProgress >= 100}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-white text-xs font-bold transition-all shadow ${
-                simProgress >= 100 ? "bg-emerald-700 cursor-default" : "bg-blue-600 hover:bg-blue-500"
-              }`}
-            >
-              {simProgress >= 100 ? (
-                <>
-                  <CheckCircle2 size={14} className="text-emerald-300" />
-                  <span>Completed</span>
-                </>
-              ) : isPlaying ? (
-                <>
-                  <Pause size={14} />
-                  <span>Pause</span>
-                </>
-              ) : (
-                <>
-                  <Play size={14} />
-                  <span>Play</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={resetSimulation}
-              className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-slate-300 transition-colors"
-              title="Reset to Day 0"
-            >
-              <RotateCcw size={15} />
-            </button>
-
-            <div className="flex bg-white/10 rounded-md p-0.5 text-[11px] font-mono font-bold">
-              {[1, 2, 5].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setSimSpeed(s)}
-                  className={`px-2 py-1 rounded transition-colors ${simSpeed === s ? "bg-amber-400 text-slate-950 font-extrabold" : "text-slate-300 hover:text-white"}`}
-                >
-                  {s}x
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* 2D WORLD MULTIMODAL VECTOR MAP SIMULATION CANVAS (1000 x 490) */}
-        <div className="relative w-full h-[490px] bg-slate-950/90 rounded-xl border border-blue-900/60 overflow-hidden shadow-inner select-none">
-          <svg viewBox="0 0 1000 490" className="w-full h-full">
-            <defs>
-              {/* Grid Background */}
-              <pattern id="simGrid" width="30" height="30" patternUnits="userSpaceOnUse">
-                <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(30, 58, 138, 0.15)" strokeWidth="0.6" />
-              </pattern>
-
-              {/* Glowing Gradients */}
-              <linearGradient id="seaGlowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#F59E0B" />
-                <stop offset="50%" stopColor="#38BDF8" />
-                <stop offset="100%" stopColor="#10B981" />
-              </linearGradient>
-
-              <filter id="simGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-            </defs>
-
-            {/* Ocean Basin Background */}
-            <rect width="1000" height="490" fill="#0A1128" />
-            <rect width="1000" height="490" fill="url(#simGrid)" />
-
-            {/* Stylized World Landmass Vector Outlines */}
-            <g opacity="0.35">
-              {/* India East Coast Landmass (Left / Center) */}
-              <path
-                d="M 50 0 L 580 0 L 550 55 L 530 90 L 505 125 L 480 165 L 450 205 L 420 245 L 405 280 L 380 315 L 345 355 L 325 395 L 310 430 L 250 465 L 180 490 L 0 490 L 0 0 Z"
-                fill="#1E293B"
-                stroke="#334155"
-                strokeWidth="1.2"
-              />
-
-              {/* Australia / Indonesia Landmass (Right Side) */}
-              <path
-                d="M 830 250 Q 910 280 970 310 L 1000 320 L 1000 490 L 880 490 Q 840 370 830 250 Z"
-                fill="#1E293B"
-                stroke="#334155"
-                strokeWidth="1.2"
-              />
-            </g>
-
-
-            {/* ========================================================================= */}
-            {/* DEDICATED MULTIMODAL SHIPMENT SIMULATION */}
-            {/* (Sample defaults shown when no vessel booked; live data when booked) */}
-            {/* ========================================================================= */}
-            {(
-              <g id="dedicated-shipment-layer">
-                {/* 1. FIRST-MILE ROAD CORRIDOR (MINE SIDING ➔ ORIGIN PORT) */}
-                <g id="first-mile-route">
-                  <line
-                    x1={srcSiding.x}
-                    y1={srcSiding.y}
-                    x2={srcPort.x}
-                    y2={srcPort.y}
-                    stroke="#F59E0B"
-                    strokeWidth="3"
-                    strokeDasharray="5 3"
-                    filter="url(#simGlow)"
-                  />
-
-                  {/* Mine Siding Pin */}
-                  <circle cx={srcSiding.x} cy={srcSiding.y} r="6" fill="#F59E0B" stroke="#FFFFFF" strokeWidth="1.5" />
-                  <text x={srcSiding.x - 8} y={srcSiding.y + 14} fontSize="8" fill="#FDE68A" fontWeight="bold" fontFamily="monospace" textAnchor="end">
-                    🏭 {srcSiding.name.split(",")[0]}
-                  </text>
-
-                  {/* Origin Port Pin */}
-                  <circle cx={srcPort.x} cy={srcPort.y} r="7" fill="#3B82F6" stroke="#FFFFFF" strokeWidth="1.5" />
-                  <text x={srcPort.x + 10} y={srcPort.y + 3} fontSize="9" fill="#93C5FD" fontWeight="extrabold" fontFamily="monospace">
-                    ⚓ {srcPort.name}
-                  </text>
-                </g>
-
-                {/* 2. OCEAN SEA LANE SHIPPING ROUTE (ORIGIN PORT ➔ DESTINATION PORT) */}
-                <g id="ocean-sea-route">
-                  <path
-                    d={oceanRoutePathD}
-                    fill="none"
-                    stroke="url(#seaGlowGrad)"
-                    strokeWidth="3.5"
-                    strokeDasharray="7 4"
-                    filter="url(#simGlow)"
-                  />
-
-                  {/* If Port Congested & Diverting: Alternate Path to Krishnapatnam */}
-                  {portCongestionActive && (
-                    <path
-                      d={congestedRoutePathD}
-                      fill="none"
-                      stroke="#EF4444"
-                      strokeWidth="2"
-                      strokeDasharray="4 4"
-                      opacity={portDiverted ? "0.3" : "0.9"}
-                    />
-                  )}
-
-                  {/* Scenario 1: Monsoon Swell Storm Ripples & Holding Zone */}
-                  {weatherDelayActive && (
-                    <g transform="translate(620, 240)">
-                      <circle cx="0" cy="0" r="28" fill="none" stroke="#F59E0B" strokeWidth="1.8">
-                        <animate attributeName="r" values="12;45" dur="1.5s" repeatCount="indefinite" />
-                        <animate attributeName="opacity" values="0.9;0" dur="1.5s" repeatCount="indefinite" />
-                      </circle>
-                      <circle cx="0" cy="0" r="9" fill="#F59E0B" opacity="0.3" />
-                      <text x="0" y="3" fontSize="8" fill="#FDE68A" textAnchor="middle" fontWeight="bold" fontFamily="monospace">
-                        ⚠️ SWELL (+10H)
-                      </text>
-                    </g>
-                  )}
-                </g>
-
-                {/* SCENARIO 1: SECONDARY VESSEL (MV COASTAL PRIDE) SAILING TO EXACT SAME PORT */}
-                {secondaryVessel?.visible && (
-                  <g id="scenario1-secondary-vessel">
-                    {!secondaryVessel.atBerth && !feederDeparting && (
-                      <g>
-                        <path
-                          d={`M ${targetPort.x + 160} ${targetPort.y + 110} Q ${targetPort.x + 80} ${targetPort.y + 50} ${targetPort.x + 22} ${targetPort.y + 10}`}
-                          fill="none"
-                          stroke="#38BDF8"
-                          strokeWidth="2"
-                          strokeDasharray="5 3"
-                          opacity="0.8"
-                        />
-                        <circle cx={targetPort.x + 160} cy={targetPort.y + 110} r="4" fill="#38BDF8" />
-                        <text x={targetPort.x + 166} y={targetPort.y + 114} fontSize="7" fill="#7DD3FC" fontFamily="monospace" fontWeight="bold">
-                          Coastal Sea Channel
-                        </text>
-                      </g>
-                    )}
-
-                    {feederDeparting && (
-                      <path
-                        d={`M ${targetPort.x + 22} ${targetPort.y + 10} Q ${targetPort.x + 100} ${targetPort.y + 35} ${targetPort.x + 190} ${targetPort.y + 70}`}
-                        fill="none"
-                        stroke="#10B981"
-                        strokeWidth="2"
-                        strokeDasharray="4 4"
-                        opacity="0.7"
-                      />
-                    )}
-
-                    <g
-                      transform={`translate(${secondaryVessel.x}, ${secondaryVessel.y}) rotate(${secondaryVessel.angle + 90})`}
-                      style={{ transition: isPlaying ? "transform 0.12s linear" : "none" }}
-                    >
-                      <circle
-                        cx="0"
-                        cy="0"
-                        r="15"
-                        fill={secondaryVessel.atBerth ? "rgba(245, 158, 11, 0.25)" : "rgba(56, 189, 248, 0.25)"}
-                      />
-                      <g transform="scale(0.65)">
-                        <TopDownVesselIcon category="Supramax" size={24} />
-                      </g>
-                    </g>
-
-                    <g transform={`translate(${secondaryVessel.x + (secondaryVessel.atBerth ? 12 : 0)}, ${secondaryVessel.y - 18})`}>
-                      <rect
-                        x="-68"
-                        y="-10"
-                        width="136"
-                        height="18"
-                        rx="4"
-                        fill={secondaryVessel.atBerth ? "#78350F" : feederDeparting ? "#065F46" : "#0C4A6E"}
-                        stroke={secondaryVessel.atBerth ? "#F59E0B" : feederDeparting ? "#34D399" : "#38BDF8"}
-                        strokeWidth="1"
-                        opacity="0.95"
-                      />
-                      <text x="0" y="2" fontSize="7" fill="#FFFFFF" textAnchor="middle" fontWeight="bold" fontFamily="monospace">
-                        {secondaryVessel.stage === "APPROACHING" && `🚢 MV Coastal Pride (${Math.round(feederProgress)}%)`}
-                        {secondaryVessel.stage === "AT_BERTH" && `⚓ MV Coastal Pride · Berth #2`}
-                        {secondaryVessel.stage === "DEPARTING" && `✅ MV Coastal Pride Cleared`}
-                      </text>
-                    </g>
-
-                    {secondaryVessel.atBerth && !feederDeparting && (
-                      <g transform={`translate(${secondaryVessel.x}, ${secondaryVessel.y})`}>
-                        <circle cx="0" cy="0" r="16" fill="none" stroke="#F59E0B" strokeWidth="1.5">
-                          <animate attributeName="r" values="8;20" dur="1.2s" repeatCount="indefinite" />
-                          <animate attributeName="opacity" values="1;0" dur="1.2s" repeatCount="indefinite" />
-                        </circle>
-
-                        <line x1="-10" y1="-6" x2="-10" y2="-18" stroke="#FBBF24" strokeWidth="2" strokeDasharray="2 2">
-                          <animate attributeName="y2" values="-18;-12;-18" dur="0.9s" repeatCount="indefinite" />
-                        </line>
-                        <line x1="10" y1="-6" x2="10" y2="-18" stroke="#FBBF24" strokeWidth="2" strokeDasharray="2 2">
-                          <animate attributeName="y2" values="-12;-18;-12" dur="0.9s" repeatCount="indefinite" />
-                        </line>
-                      </g>
-                    )}
-                  </g>
-                )}
-
-                {/* EXACTLY ONE (1) Moving Truck for Coastal/Feeder Vessel Discharging to Angul Steel */}
-                {feederTruck && (
-                  <g 
-                    id="scenario1-feeder-single-truck"
-                    transform={`translate(${feederTruck.x}, ${feederTruck.y}) rotate(${feederTruck.angle})`}
-                    style={{ transition: isPlaying ? "transform 0.12s linear" : "none" }}
-                  >
-                    <circle cx="0" cy="0" r="9" fill="rgba(245, 158, 11, 0.35)" />
-                    <g transform="scale(0.6)">
-                      <TopDownTruckSvg size={20} horizontal={true} />
-                    </g>
-
-                    <g transform={`rotate(${-feederTruck.angle}) translate(0, 16)`}>
-                      <rect
-                        x="-50"
-                        y="-8"
-                        width="100"
-                        height="15"
-                        rx="3"
-                        fill="#1E293B"
-                        stroke="#F59E0B"
-                        strokeWidth="1"
-                        opacity="0.95"
-                      />
-                      <text x="0" y="2.5" fontSize="6.5" fill="#FDE68A" textAnchor="middle" fontWeight="bold" fontFamily="monospace">
-                        🚛 Angul Steel ({feederTruck.progress}%)
-                      </text>
-                    </g>
-                  </g>
-                )}
-
-                {/* 4. LAST-MILE ROAD CORRIDOR (DESTINATION PORT ➔ STEEL COMPLEX) */}
-                <g id="last-mile-route">
-                  <line
-                    x1={targetPort.x}
-                    y1={targetPort.y}
-                    x2={targetPlant.x}
-                    y2={targetPlant.y}
-                    stroke="#10B981"
-                    strokeWidth="3"
-                    strokeDasharray="5 3"
-                    filter="url(#simGlow)"
-                  />
-
-                  {/* Steel Plant Node & Label */}
-                  <circle cx={targetPlant.x} cy={targetPlant.y} r="7" fill="#10B981" stroke="#FFFFFF" strokeWidth="1.5" />
-                  <g transform={`translate(${targetPlant.x - 12}, ${targetPlant.y + 4})`}>
-                    <rect x="-90" y="-8" width="90" height="15" rx="3" fill="#064E3B" stroke="#10B981" strokeWidth="0.8" opacity="0.9" />
-                    <text x="-45" y="2.5" fontSize="7" fill="#6EE7B7" fontWeight="extrabold" fontFamily="monospace" textAnchor="middle">
-                      🏢 {targetPlant.name.split(" ")[0]} Steel
-                    </text>
-                  </g>
-                </g>
-
-                {/* Vessel Docked at Destination Port once arrived */}
-                {simProgress >= 75 && (
-                  <g transform={`translate(${targetPort.x + 5}, ${targetPort.y}) rotate(-90)`}>
-                    <g transform="scale(0.7)">
-                      <TopDownVesselIcon category={requirement?.selectedVessel?.category || "Panamax"} size={22} />
-                    </g>
-                    <rect x="12" y="-7" width="105" height="14" rx="3" fill="#0F172A" stroke="#06B6D4" strokeWidth="0.8" opacity="0.9" />
-                    <text x="64" y="3" fontSize="6.5" fill="#67E8F9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                      ⚓ {requirement?.selectedVessel?.name || "Vessel"} (At Port)
-                    </text>
-                  </g>
-                )}
-
-                {/* 5. REAL-TIME LIVE MOVING 2D ASSET (TOP-DOWN TRUCK OR SHIP) */}
-                <g 
-                  id="live-traveling-asset"
-                  transform={`translate(${asset.x}, ${asset.y}) rotate(${asset.angle + (asset.type === "TRUCK" ? 0 : 90)})`}
-                  style={{ transition: isPlaying ? "transform 0.15s linear" : "none" }}
-                >
-                  <circle cx="0" cy="0" r="16" fill={asset.type === "TRUCK" ? "rgba(245, 158, 11, 0.3)" : weatherDelayActive && !berthReallocated ? "rgba(239, 68, 68, 0.55)" : "rgba(14, 165, 233, 0.35)"} />
-
-                  {asset.type === "TRUCK" ? (
-                    <g transform="scale(0.75)">
-                      <TopDownTruckSvg size={26} horizontal={true} />
-                    </g>
-                  ) : (
-                    <g transform="scale(0.75)">
-                      <TopDownVesselIcon category={requirement?.selectedVessel?.category || "Panamax"} size={24} />
-                    </g>
-                  )}
-                </g>
-
-                {/* Holding in Sea Floating Label */}
-                {weatherDelayActive && !berthReallocated && (
-                  <g transform={`translate(${asset.x}, ${asset.y + 22})`}>
-                    <rect x="-80" y="-10" width="160" height="18" rx="4" fill="#991B1B" stroke="#F87171" strokeWidth="1" opacity="0.95" />
-                    <text x="0" y="2" fontSize="7" fill="#FFFFFF" textAnchor="middle" fontWeight="bold" fontFamily="monospace">
-                      ⚓ STOPPED IN SEA (SWELL WAIT)
-                    </text>
-                  </g>
-                )}
-              </g>
-            )}
-
-            {/* 3. ALL 12 DESTINATION PORTS ON EAST COAST (CLEARLY DISPLAYED & STAGGERED) */}
-            <g id="dest-ports">
-              {Object.keys(DEST_NODES).map((dKey) => {
-                const d = DEST_NODES[dKey];
-                const isTarget = dKey === destKey;
-                const isCongested = portCongestionActive && dKey === (requirement?.destinationPort || "Paradip");
-                const isRight = d.labelSide === "right";
-                const portTitle = d.name.replace(" Port", "").replace(" Dock Complex", "");
-
-                return (
-                  <g key={dKey} transform={`translate(${d.x}, ${d.y})`}>
-                    {isTarget && hasBookedVessel && (
-                      <circle cx="0" cy="0" r="14" fill="none" stroke="#10B981" strokeWidth="1.5">
-                        <animate attributeName="r" values="6;22" dur="1.4s" repeatCount="indefinite" />
-                        <animate attributeName="opacity" values="1;0" dur="1.4s" repeatCount="indefinite" />
-                      </circle>
-                    )}
-
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r={isTarget && hasBookedVessel ? "7" : "4.5"}
-                      fill={isCongested ? "#EF4444" : isTarget && hasBookedVessel ? "#10B981" : "#0284C7"}
-                      stroke="#FFFFFF"
-                      strokeWidth={isTarget && hasBookedVessel ? "1.8" : "1"}
-                    />
-
-                    {/* Port Name Badge */}
-                    <g transform={`translate(${isRight ? 9 : -9}, 0)`}>
-                      <rect
-                        x={isRight ? 0 : -portTitle.length * 6.5 - 12}
-                        y="-8"
-                        width={portTitle.length * 6.5 + 12}
-                        height="16"
-                        rx="3"
-                        fill="#0B132B"
-                        fillOpacity="0.9"
-                        stroke={isTarget && hasBookedVessel ? "#10B981" : isCongested ? "#EF4444" : "#334155"}
-                        strokeWidth="0.8"
-                      />
-                      <text
-                        x={isRight ? 6 : -6}
-                        y="3.5"
-                        fontSize="8.5"
-                        fill={isCongested ? "#FCA5A5" : isTarget && hasBookedVessel ? "#6EE7B7" : "#E2E8F0"}
-                        fontWeight={isTarget && hasBookedVessel ? "extrabold" : "bold"}
-                        fontFamily="Manrope"
-                        textAnchor={isRight ? "start" : "end"}
-                      >
-                        {portTitle}
-                      </text>
-                    </g>
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-
-          {/* Canvas Bottom Mini HUD */}
-          <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[10px] font-mono text-slate-300 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-700/80">
-            {simProgress >= 100 ? (
-              <div className="w-full flex items-center justify-between text-emerald-400 font-bold">
-                <span className="flex items-center gap-1.5">
-                  <CheckCircle2 size={13} className="text-emerald-300" />
-                  Multimodal Transit Completed: Vessel arrived at {targetPort.name}, Truck delivered material to {targetPlant.name.split(" ")[0]} Plant!
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                  VOYAGE COMPLETED & SETTLED
-                </span>
-              </div>
-            ) : hasBookedVessel ? (
-              <>
-                <span className="flex items-center gap-1.5 text-amber-400 font-bold">
-                  <Truck size={12} /> 1. Siding: {srcSiding.name.split(",")[0]}
-                </span>
-                <ArrowRight size={10} className="text-slate-500" />
-                <span className="flex items-center gap-1.5 text-blue-400 font-bold">
-                  <Ship size={12} /> 2. Sea Lane: {requirement?.selectedVessel?.name} ({weatherDelayActive && !berthReallocated ? "Idle in Swell (0 kts)" : "13.8 kts"})
-                </span>
-                <ArrowRight size={10} className="text-slate-500" />
-                <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                  <Building2 size={12} /> 3. Last-Mile: {targetPlant.name.split(" ")[0]} Steel Complex
-                </span>
-              </>
-            ) : (
-              <div className="w-full flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-blue-400 font-bold">
-                  <Ship size={13} /> Sample Route: Newcastle → Paradip Port · Book a shipment to track your own vessel
-                </span>
-                <span className="text-amber-400 font-bold">
-                  Demo Mode · 74k MT Coal · Panamax · 13.8 kts
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Top Action / Scenario Trigger Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <div className="text-xs text-blue-200 font-bold flex items-center gap-1.5">
-            <Sparkles size={14} className="text-amber-400" />
-            <span>
-              {hasBookedVessel 
-                ? "Interactive What-If Triggers (Click to see real-time 4-role reaction):"
-                : "Live Fleet Radar Mode · Create a shipment booking to track your dedicated vessel:"}
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {!hasBookedVessel ? (
-              <Link
-                to="/new-requirement"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md animate-pulse"
-              >
-                <Sparkles size={14} className="text-amber-300" />
-                <span>+ Book Shipment & Dispatch Dedicated Vessel</span>
-              </Link>
-            ) : (
-              <>
-                <button
-                  onClick={triggerWeatherDelay}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                    weatherDelayActive 
-                      ? "bg-amber-500 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/30" 
-                      : "bg-white/10 hover:bg-white/20 text-white border-white/20"
-                  }`}
-                >
-                  <Zap size={14} className={weatherDelayActive ? "text-slate-950" : "text-amber-300"} />
-                  <span>⚡ Scenario 1: Swell Delay (+10h) ➔ Hold Sea & Swap Berth</span>
-                </button>
-
-                <button
-                  onClick={triggerPortCongestion}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                    portCongestionActive 
-                      ? "bg-red-600 text-white border-red-400 shadow-md ring-2 ring-red-400/30 animate-pulse" 
-                      : "bg-white/10 hover:bg-white/20 text-white border-white/20"
-                  }`}
-                >
-                  <ShieldAlert size={14} className="text-red-300" />
-                  <span>🚨 Scenario 2: Port Congested ➔ Divert to Krishnapatnam</span>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+      <div className="space-y-4">
+        <EastCoastMap
+          originPort={requirement?.originPort || "Singapore"}
+          activePort={portDiverted ? "Krishnapatnam" : (requirement?.destinationPort || "Dhamra")}
+          highlightedPorts={[portDiverted ? "Krishnapatnam" : (requirement?.destinationPort || "Dhamra"), "Krishnapatnam", "Visakhapatnam"]}
+          showRoute={isContractorAccepted && showSimulation}
+          showSimulation={isContractorAccepted && showSimulation}
+          bookedVessel={requirement?.selectedVessel || requirement?.assignedVessel}
+          simProgress={simProgress}
+          isPlaying={isPlaying}
+          simSpeed={simSpeed}
+          onTogglePlay={togglePlay}
+          onResetSimulation={resetSimulation}
+          onSetSimSpeed={setSimSpeed}
+          weatherDelayActive={weatherDelayActive}
+          berthReallocated={berthReallocated}
+          portCongestionActive={portCongestionActive}
+          portDiverted={portDiverted}
+          onTriggerWeatherDelay={triggerWeatherDelay}
+          onApproveBerthReallocation={approveBerthReallocation}
+          onTriggerPortCongestion={triggerPortCongestion}
+          onApprovePortDiversion={approvePortDiversion}
+          waitingForTruckGateScan={waitingForTruckGateScan}
+          gateCleared={gateCleared}
+          onScanGatePass={scanGatePass}
+        />
       </div>
-      )}
 
       {/* DYNAMIC SCENARIO NOTIFICATION BANNER 1: SWELL DELAY + VESSEL BERTH SWAP */}
       {weatherDelayActive && (
@@ -1460,44 +977,6 @@ export default function Dashboard() {
         </div>
       </div>
       )}
-
-      {/* ========================================================================= */}
-      {/* EAST COAST MARITIME & INLAND LOGISTICS MAP */}
-      {/* ========================================================================= */}
-      <div className="astra-card p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-3">
-          <div>
-            <div className="text-xs uppercase font-mono font-bold text-blue-900">LIVE GEOSPATIAL RADAR</div>
-            <h3 className="text-lg font-extrabold text-slate-900" style={{ fontFamily: "Manrope" }}>
-              Bay of Bengal Multimodal Corridor & East Coast Ports
-            </h3>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-blue-900" />
-              <span>Panamax Vessel ({requirement?.selectedVessel?.name || "MV Bengal Voyager"})</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-amber-500" />
-              <span>Road Fleet Feeders</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-emerald-500" />
-              <span>East Coast Terminals</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="w-full rounded-xl overflow-hidden border border-slate-200 shadow-sm">
-          <EastCoastMap
-            originPort={requirement?.originPort || "Singapore"}
-            activePort={requirement?.destinationPort || "Dhamra"}
-            highlightedPorts={[requirement?.destinationPort || "Dhamra", "Krishnapatnam", "Visakhapatnam"]}
-            showRoute={hasActiveBooking}
-          />
-        </div>
-      </div>
     </div>
   );
 }
